@@ -1,0 +1,23 @@
+# ── Web framework ─────────────────────────────────────────────────────────────
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+
+# ── GRIB2 / meteorological data ───────────────────────────────────────────────
+cfgrib>=0.9.12
+xarray>=2024.2.0
+eccodes>=1.7.0          # system lib wrapper; install eccodes via brew/apt first
+numpy>=1.26.0
+
+# ── Tile generation ───────────────────────────────────────────────────────────
+Pillow>=10.3.0          # PNG encode + bicubic resize
+mercantile>=1.2.1       # Web Mercator tile math (lat/lon ↔ z/x/y)
+matplotlib>=3.8.0       # colormaps (turbo, Blues, YlGnBu, etc.)
+
+# ── Scheduler ─────────────────────────────────────────────────────────────────
+APScheduler>=3.10.4
+
+# ── HTTP (download from NOAA) ─────────────────────────────────────────────────
+# uses stdlib urllib only — no extra dep needed
+
+# ── Utilities ─────────────────────────────────────────────────────────────────
+python-dotenv>=1.0.1    # load .env

@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NOAA Weather BE — Admin</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg:#0d1117; --surface:#161b22; --surface2:#1c2128; --border:#30363d;
+  --text:#e6edf3; --muted:#7d8590; --accent:#388bfd; --accent2:#1f6feb;
+  --green:#3fb950; --yellow:#d29922; --red:#f85149; --radius:8px;
+  --shadow:0 1px 3px rgba(0,0,0,.4);
+}
+body { background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; font-size:14px; line-height:1.5; min-height:100vh; }
+
+.topbar { position:sticky;top:0;z-index:100;background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;padding:0 24px;height:52px; }
+.topbar-logo { font-weight:700;font-size:15px;display:flex;align-items:center;gap:8px; }
+.status-pill { display:inline-flex;align-items:center;gap:6px;background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:3px 10px;font-size:12px; }
+.dot { width:7px;height:7px;border-radius:50%;background:var(--muted);flex-shrink:0;transition:background .3s,box-shadow .3s; }
+.dot.ok  { background:var(--green);box-shadow:0 0 6px var(--green); }
+.dot.err { background:var(--red);box-shadow:0 0 6px var(--red); }
+.topbar-right { margin-left:auto;display:flex;align-items:center;gap:8px; }
+#clock { font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums; }
+
+.page { max-width:1320px;margin:0 auto;padding:20px 24px;display:grid;grid-template-columns:1fr 320px;gap:20px; }
+@media(max-width:900px){.page{grid-template-columns:1fr;}}
+.col { display:flex;flex-direction:column;gap:16px; }
+
+.card { background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden; }
+.card-head { display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--border);background:var(--surface2); }
+.card-title { font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);display:flex;align-items:center;gap:7px; }
+.card-body { padding:16px; }
+
+.btn { display:inline-flex;align-items:center;gap:5px;padding:6px 14px;border-radius:6px;border:1px solid transparent;font-size:13px;font-weight:500;cursor:pointer;transition:filter .15s,transform .1s;white-space:nowrap;user-select:none;text-decoration:none; }
+.btn:hover{filter:brightness(1.15)}.btn:active{transform:scale(.97);filter:brightness(.9)}.btn:disabled{opacity:.4;cursor:default;pointer-events:none}
+.btn-primary { background:var(--accent2);color:#fff;border-color:var(--accent); }
+.btn-ghost   { background:var(--surface2);color:var(--text);border-color:var(--border); }
+.btn-green   { background:#1a3c28;color:var(--green);border-color:#2d6a41; }
+.btn-sm { padding:4px 10px;font-size:12px; }
+.btn-xs { padding:2px 8px;font-size:11px; }
+
+.steps { display:flex;flex-direction:column;gap:0; }
+.step { display:grid;grid-template-columns:36px 1fr;gap:0 12px;position:relative; }
+.step:not(:last-child) .step-line { position:absolute;left:17px;top:36px;bottom:0;width:2px;background:var(--border); }
+.step-num { width:36px;height:36px;border-radius:50%;background:var(--surface2);border:2px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:var(--muted);flex-shrink:0;z-index:1;margin-top:16px;transition:border-color .3s,color .3s; }
+.step-num.active { border-color:var(--accent);color:var(--accent); }
+.step-body { padding:16px 0 20px; }
+.step-title { font-size:14px;font-weight:600;margin-bottom:6px; }
+.step-sub { font-size:12px;color:var(--muted);margin-bottom:10px; }
+
+.fields { display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end; }
+.field { display:flex;flex-direction:column;gap:4px; }
+.field label { font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em; }
+input,select { background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:5px;padding:6px 10px;font-size:13px;outline:none;transition:border-color .15s; }
+input:focus,select:focus { border-color:var(--accent); }
+select option { background:var(--surface); }
+
+.map-grid { display:grid;grid-template-columns:repeat(auto-fill,minmax(195px,1fr));gap:10px; }
+.map-card { background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:12px;transition:border-color .2s; }
+.map-card.running { border-color:var(--accent); }
+.map-card.ok      { border-color:#2d6a41; }
+.map-card.error   { border-color:#7a2b2b; }
+.map-card-header  { display:flex;align-items:flex-start;justify-content:space-between;gap:6px;margin-bottom:8px; }
+.map-name { font-size:13px;font-weight:600;line-height:1.3; }
+.badge { font-size:10px;font-weight:700;text-transform:uppercase;padding:2px 7px;border-radius:12px;white-space:nowrap;flex-shrink:0; }
+.badge-idle    { background:var(--surface);color:var(--muted);border:1px solid var(--border); }
+.badge-running { background:#0d2045;color:#58a6ff;border:1px solid #1f6feb; }
+.badge-ok      { background:#0f2e1a;color:var(--green);border:1px solid #2d6a41; }
+.badge-error   { background:#2d1111;color:var(--red);border:1px solid #7a2b2b; }
+.progress-bar  { height:4px;background:var(--border);border-radius:3px;overflow:hidden;flex:1; }
+.progress-fill { height:100%;border-radius:3px;width:0%;transition:width .4s ease,background .3s;background:var(--muted); }
+.progress-fill.running{background:var(--accent)}.progress-fill.ok{background:var(--green)}.progress-fill.error{background:var(--red)}
+.progress-wrap { display:flex;align-items:center;gap:6px;margin-bottom:6px; }
+.pct-label { font-size:10px;color:var(--muted);font-variant-numeric:tabular-nums;width:30px;text-align:right;flex-shrink:0; }
+.step-detail { font-size:11px;color:var(--accent);margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+.frame-detail { font-size:10.5px;color:var(--muted);margin-bottom:2px;font-family:'SF Mono','Fira Code',monospace; }
+.map-meta { font-size:11px;color:var(--muted);display:flex;flex-direction:column;gap:2px; }
+.map-card-actions { display:flex;gap:5px;margin-top:10px; }
+
+.run-list { display:flex;flex-direction:column;gap:5px; }
+.run-row { display:flex;align-items:center;gap:8px;padding:7px 10px;background:var(--bg);border:1px solid var(--border);border-radius:5px;cursor:pointer;transition:border-color .15s; }
+.run-row:hover { border-color:var(--accent); }
+.run-row.latest { border-color:var(--accent);background:#0d2045; }
+.run-id-text { font-family:'SF Mono',monospace;font-size:12px;flex:1; }
+.run-tag { font-size:10px;font-weight:700;background:var(--accent2);color:#fff;border-radius:10px;padding:1px 7px; }
+
+.log-box { background:var(--bg);border:1px solid var(--border);border-radius:5px;font-family:'SF Mono','Fira Code',monospace;font-size:11px;height:340px;overflow-y:auto;padding:6px 8px;display:flex;flex-direction:column; }
+.log-row { padding:1px 0;display:flex;gap:6px;word-break:break-all; }
+.log-ts{color:#2d3748;flex-shrink:0;white-space:nowrap}.log-name{color:#4a5568;flex-shrink:0;white-space:nowrap;max-width:120px;overflow:hidden;text-overflow:ellipsis}
+.log-ok{color:var(--green)}.log-err{color:var(--red)}.log-info{color:#a0aec0}.log-warn{color:var(--yellow)}
+.log-filter { display:flex;gap:6px;align-items:center;flex-wrap:wrap; }
+.log-filter label { font-size:11px;color:var(--muted);display:flex;align-items:center;gap:3px;cursor:pointer; }
+.log-tail-toggle { font-size:11px;color:var(--muted);cursor:pointer;user-select:none; }
+
+#toast-area { position:fixed;bottom:20px;right:20px;z-index:9999;display:flex;flex-direction:column-reverse;gap:8px;pointer-events:none; }
+.toast { background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 16px;font-size:13px;box-shadow:0 4px 12px rgba(0,0,0,.5);display:flex;align-items:center;gap:8px;animation:slideIn .25s ease;pointer-events:auto; }
+.toast.ok{border-color:#2d6a41}.toast.err{border-color:#7a2b2b}
+@keyframes slideIn{from{transform:translateY(20px);opacity:0}to{transform:translateY(0);opacity:1}}
+.empty { text-align:center;padding:20px;color:var(--muted);font-size:13px; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-logo">🌏 NOAA Weather Admin</div>
+  <div class="status-pill">
+    <span class="dot" id="hdot"></span>
+    <span id="htext" style="color:var(--muted)">connecting…</span>
+  </div>
+  <div class="topbar-right">
+    <span id="clock"></span>
+    <button class="btn btn-green btn-sm" onclick="triggerAll()">▶ Run All Jobs</button>
+  </div>
+</div>
+
+<div class="page">
+  <!-- LEFT -->
+  <div class="col">
+
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title">📊 7 Map Types — Job Status</div>
+        <button class="btn btn-ghost btn-sm" onclick="refreshJobs()">↺ Refresh</button>
+      </div>
+      <div class="card-body">
+        <div class="map-grid" id="map-grid"><div class="empty">Loading…</div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title">⚙️ Manual Pipeline</div>
+      </div>
+      <div class="card-body">
+        <div class="steps">
+
+          <div class="step">
+            <div class="step-line"></div>
+            <div class="step-num active">1</div>
+            <div class="step-body">
+              <div class="step-title">🔍 Discover Cycle</div>
+              <div class="step-sub">Kiểm tra NOAA xem chu kỳ này đã có dữ liệu đến giờ nào.</div>
+              <div class="fields">
+                <div class="field"><label>Run Date</label><input id="disc-date" type="text" placeholder="20260410" style="width:110px"></div>
+                <div class="field"><label>Run Hour (UTC)</label>
+                  <select id="disc-hour" style="width:80px">
+                    <option value="0">00z</option><option value="6">06z</option>
+                    <option value="12">12z</option><option value="18">18z</option>
+                  </select>
+                </div>
+                <div class="field"><label>Max Forecast (h)</label><input id="disc-maxfff" type="number" value="48" style="width:66px"></div>
+                <div class="field"><label>&nbsp;</label><button class="btn btn-ghost" onclick="doDiscover()">Run Discover</button></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="step">
+            <div class="step-line"></div>
+            <div class="step-num" id="s2num">2</div>
+            <div class="step-body">
+              <div class="step-title">⬇️ Download GRIB2</div>
+              <div class="step-sub">Tải file khí tượng .grib2 từ NOAA về server (chạy background).</div>
+              <div class="fields">
+                <div class="field"><label>Map Type</label><select id="dl-map" style="width:205px" onchange="syncRunId()"></select></div>
+                <div class="field"><label>Run Date</label><input id="dl-date" type="text" placeholder="20260410" style="width:110px" oninput="syncRunId()"></div>
+                <div class="field"><label>Run Hour</label>
+                  <select id="dl-hour" style="width:80px" onchange="syncRunId()">
+                    <option value="0">00z</option><option value="6">06z</option>
+                    <option value="12">12z</option><option value="18">18z</option>
+                  </select>
+                </div>
+                <div class="field"><label>&nbsp;</label><button class="btn btn-ghost" onclick="doDownload()">Download</button></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="step">
+            <div class="step-num" id="s3num">3</div>
+            <div class="step-body">
+              <div class="step-title">🗺️ Generate Output</div>
+              <div class="step-sub">Tạo PNG tiles (bản đồ màu) hoặc JSON grids (animation gió/mưa).</div>
+              <div class="fields">
+                <div class="field"><label>Map Type</label><select id="gen-map" style="width:205px"></select></div>
+                <div class="field"><label>Run ID</label><input id="gen-runid" type="text" placeholder="20260410_00z" style="width:145px"></div>
+                <div class="field"><label>&nbsp;</label><button class="btn btn-ghost" onclick="doGenTiles()" title="Tạo ảnh PNG tile cho bản đồ màu">🖼 PNG Tiles</button></div>
+                <div class="field"><label>&nbsp;</label><button class="btn btn-ghost" onclick="doGenGrids()" title="Tạo JSON animation cho gió và mưa">📐 JSON Grids</button></div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- RIGHT -->
+  <div class="col">
+
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title">🕐 Available Runs</div>
+        <button class="btn btn-ghost btn-sm" onclick="refreshRuns()">↺</button>
+      </div>
+      <div class="card-body" style="padding:10px">
+        <div class="run-list" id="run-list"><div class="empty">Loading…</div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><div class="card-title">🔗 Quick Links</div></div>
+      <div class="card-body" style="display:flex;flex-direction:column;gap:6px">
+        <a href="/docs" target="_blank" class="btn btn-ghost" style="justify-content:center">📖 Swagger API Docs</a>
+        <a href="/api/v1/health" target="_blank" class="btn btn-ghost" style="justify-content:center">❤️ Health Check</a>
+        <a href="/api/v1/runs/latest" target="_blank" class="btn btn-ghost" style="justify-content:center">🕐 Latest Run Info</a>
+        <a href="/api/v1/maps" target="_blank" class="btn btn-ghost" style="justify-content:center">🗂️ Map Types List</a>
+      </div>
+    </div>
+
+    <div class="card" style="flex:1">
+      <div class="card-head">
+        <div class="card-title">📋 Server Log</div>
+        <div style="display:flex;gap:6px;align-items:center">
+          <span class="log-tail-toggle" id="tail-toggle" onclick="toggleTail()" title="Auto-scroll to latest">📌 tail: ON</span>
+          <button class="btn btn-ghost btn-sm" onclick="clearServerLog()">Clear</button>
+        </div>
+      </div>
+      <div style="padding:6px 10px;border-bottom:1px solid var(--border);background:var(--surface2)">
+        <div class="log-filter">
+          <label><input type="checkbox" id="flt-info" checked onchange="applyFilter()"> info</label>
+          <label><input type="checkbox" id="flt-warn" checked onchange="applyFilter()"> warn</label>
+          <label><input type="checkbox" id="flt-err" checked onchange="applyFilter()"> error</label>
+          <label style="margin-left:auto"><input type="text" id="flt-text" placeholder="filter …" style="padding:2px 6px;font-size:11px;width:120px" oninput="applyFilter()"></label>
+        </div>
+      </div>
+      <div class="card-body" style="padding:6px">
+        <div class="log-box" id="server-log"></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div id="toast-area"></div>
+
+<script>
+const BASE = location.origin;
+const MAP_TYPES = ['temperature_feels_like','rain_basic','rain_advanced','cloud_total','cloud_layered','snow_depth','wind_animation'];
+const MAP_LABELS = { temperature_feels_like:'Nhiệt độ cảm giác',rain_basic:'Mưa cơ bản',rain_advanced:'Mưa chi tiết',cloud_total:'Mây tổng thể',cloud_layered:'Mây phân lớp',snow_depth:'Độ dày tuyết',wind_animation:'Gió (animation)' };
+const MAP_ICONS  = { temperature_feels_like:'🌡️',rain_basic:'🌧️',rain_advanced:'⛈️',cloud_total:'☁️',cloud_layered:'🌥️',snow_depth:'❄️',wind_animation:'💨' };
+
+function tickClock(){ document.getElementById('clock').textContent = new Date().toLocaleTimeString('en-GB',{timeZone:'UTC',hour12:false})+' UTC'; }
+tickClock(); setInterval(tickClock,1000);
+
+function ts(){ return new Date().toLocaleTimeString('en-GB',{hour12:false}); }
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function addLog(msg,level='info'){ console.log(`[${level}] ${msg}`); }
+function clearLog(){ }
+
+function toast(msg,type='info'){
+  const area=document.getElementById('toast-area');
+  const el=document.createElement('div');
+  el.className=`toast ${type}`; el.textContent=msg; area.appendChild(el);
+  setTimeout(()=>{ el.style.opacity='0'; setTimeout(()=>el.remove(),300); },3000);
+}
+
+async function api(method,path,body){
+  const opts={method,headers:{'Content-Type':'application/json'}};
+  if(body!==undefined) opts.body=JSON.stringify(body);
+  try{
+    const r=await fetch(BASE+path,opts);
+    const data=await r.json().catch(()=>({}));
+    if(!r.ok){ addLog(`${method} ${path} → ${r.status}`,'err'); toast(`Error ${r.status}`,'err'); return null; }
+    return data;
+  }catch(e){ addLog(`${method} ${path} → ${e.message}`,'err'); toast('Connection failed','err'); return null; }
+}
+
+async function checkHealth(){
+  try{
+    const r=await fetch(BASE+'/api/v1/health');
+    document.getElementById('hdot').className='dot '+(r.ok?'ok':'err');
+    document.getElementById('htext').textContent=r.ok?'Online':`Error ${r.status}`;
+    document.getElementById('htext').style.color=r.ok?'var(--green)':'var(--red)';
+  }catch{ document.getElementById('hdot').className='dot err'; document.getElementById('htext').textContent='Offline'; document.getElementById('htext').style.color='var(--red)'; }
+}
+
+const STEP_LABEL = {
+  checking:    '🔍 Kiểm tra dữ liệu…',
+  discovering: '🛰 Khám phá NOAA cycle…',
+  downloading: '⬇ Đang tải GRIB2…',
+  generating:  '🗺 Đang tạo ảnh/grid…',
+  done:        '✓ Hoàn thành',
+  error:       '✗ Lỗi',
+};
+
+let _pollTimer = null;
+function _schedPoll(anyRunning) {
+  if (_pollTimer) clearInterval(_pollTimer);
+  _pollTimer = setInterval(refreshJobs, anyRunning ? 2000 : 5000);
+}
+
+async function refreshJobs(){
+  const data=await api('GET','/api/v1/admin/jobs'); if(!data) return;
+  const grid=document.getElementById('map-grid'); grid.innerHTML='';
+  let anyRunning = false;
+  MAP_TYPES.forEach(mt=>{
+    const j=data[mt]||{status:'idle'};
+    const st=j.status||'idle';
+    if(st==='running') anyRunning=true;
+
+    // Real progress %
+    let pct;
+    if(st==='ok') pct=100;
+    else if(st==='running' && j.frames_total>0) pct=Math.round((j.frames_done||0)/j.frames_total*100);
+    else if(st==='running') pct=5;
+    else pct=0;
+
+    const lastTime=j.last_success?'✓ '+new Date(j.last_success).toLocaleTimeString('en-GB',{hour12:false})
+      :j.last_started?'⏳ '+new Date(j.last_started).toLocaleTimeString('en-GB',{hour12:false})
+      :'Never run';
+
+    // Build live detail lines (only when running)
+    let progressLines='';
+    if(st==='running'){
+      const stepText = STEP_LABEL[j.step] || j.step || '…';
+      progressLines += `<div class="step-detail">${esc(stepText)}</div>`;
+
+      if(j.step==='generating' && j.current_fff!=null){
+        const frameInfo = j.frames_total
+          ? `frame ${j.frames_done||0}/${j.frames_total} — f${String(j.current_fff).padStart(3,'0')}`
+          : `f${String(j.current_fff).padStart(3,'0')}`;
+        progressLines += `<div class="frame-detail">${esc(frameInfo)}</div>`;
+        if(j.current_product)
+          progressLines += `<div class="frame-detail">product: ${esc(j.current_product)}</div>`;
+        if(j.tiles_saved!=null)
+          progressLines += `<div class="frame-detail">${j.tiles_saved} tiles saved · ${j.tiles_skipped||0} skipped</div>`;
+      } else if(j.step==='downloading' && j.frames_total>0){
+        progressLines += `<div class="frame-detail">frames: ${j.frames_done||0}/${j.frames_total}</div>`;
+      } else if(j.step_detail){
+        progressLines += `<div class="frame-detail">${esc(j.step_detail)}</div>`;
+      }
+    } else if(st==='ok' && j.step_detail){
+      progressLines += `<div class="frame-detail" style="color:var(--green)">${esc(j.step_detail)}</div>`;
+    }
+
+    const card=document.createElement('div');
+    card.className=`map-card ${st}`;
+    card.innerHTML=`
+      <div class="map-card-header">
+        <div class="map-name">${MAP_ICONS[mt]} ${MAP_LABELS[mt]}</div>
+        <span class="badge badge-${st}">${st}</span>
+      </div>
+      <div class="progress-wrap">
+        <div class="progress-bar"><div class="progress-fill ${st}" style="width:${pct}%"></div></div>
+        <span class="pct-label">${pct}%</span>
+      </div>
+      ${progressLines}
+      <div class="map-meta">
+        <span>${lastTime}</span>
+        ${j.run_id&&st==='running'?`<span style="color:var(--muted);font-family:monospace">${esc(j.run_id)}</span>`:''}
+        ${j.last_error?`<span style="color:var(--red)" title="${esc(j.last_error)}">⚠ ${esc(j.last_error.slice(0,45))}…</span>`:''}
+      </div>
+      <div class="map-card-actions">
+        <button class="btn btn-ghost btn-xs" onclick="triggerOne('${mt}')">▶ Run</button>
+        <button class="btn btn-ghost btn-xs" onclick="prefillGen('${mt}')">⚙ Gen</button>
+      </div>`;
+    grid.appendChild(card);
+  });
+  _schedPoll(anyRunning);
+}
+
+function prefillGen(mt){ document.getElementById('gen-map').value=mt; addLog(`Prefilled generate → ${mt}`,'info'); }
+
+async function refreshRuns(){
+  const data=await api('GET','/api/v1/runs/latest');
+  const list=document.getElementById('run-list'); list.innerHTML='';
+  if(!data||!data.all_run_ids||!data.all_run_ids.length){ list.innerHTML='<div class="empty">No runs available yet</div>'; return; }
+  data.all_run_ids.forEach((rid,i)=>{
+    const row=document.createElement('div');
+    row.className='run-row'+(i===0?' latest':'');
+    row.title='Click để dùng làm Run ID';
+    row.innerHTML=`<span class="run-id-text">${rid}</span>${i===0?'<span class="run-tag">LATEST</span>':''}`;
+    row.onclick=()=>{ document.getElementById('gen-runid').value=rid; toast(`Run ID: ${rid}`,'ok'); };
+    list.appendChild(row);
+  });
+}
+
+async function triggerAll(){ addLog('Queuing all 7 jobs…','info'); const r=await api('POST','/api/v1/admin/trigger-job-all',{}); if(r){ toast('All jobs queued ✓','ok'); addLog('All jobs queued','ok'); } }
+async function triggerOne(mt){ addLog(`Queuing ${mt}…`,'info'); const r=await api('POST',`/api/v1/admin/trigger-job/${mt}`,{}); if(r){ toast(`${MAP_LABELS[mt]} queued`,'ok'); } }
+
+async function doDiscover(){
+  const run_date=document.getElementById('disc-date').value.trim();
+  const run_hour=parseInt(document.getElementById('disc-hour').value);
+  const max_fff=parseInt(document.getElementById('disc-maxfff').value);
+  if(!run_date){ toast('Run date required','err'); return; }
+  addLog(`Discovering ${run_date}_${String(run_hour).padStart(2,'0')}z…`,'info');
+  const r=await api('POST','/api/v1/admin/trigger-discover',{run_date,run_hour,max_fff});
+  if(r){ toast('Discover completed ✓','ok'); refreshRuns(); }
+}
+
+async function doDownload(){
+  const map_type=document.getElementById('dl-map').value;
+  const run_date=document.getElementById('dl-date').value.trim();
+  const run_hour=parseInt(document.getElementById('dl-hour').value);
+  if(!run_date){ toast('Run date required','err'); return; }
+  addLog(`Queuing download: ${map_type} / ${run_date}_${String(run_hour).padStart(2,'0')}z`,'info');
+  const r=await api('POST','/api/v1/admin/trigger-download',{map_type,run_date,run_hour});
+  if(r){ toast('Download queued (background)','ok'); }
+}
+
+async function doGenTiles(){
+  const map_type=document.getElementById('gen-map').value;
+  const run_id=document.getElementById('gen-runid').value.trim();
+  if(!run_id){ toast('Run ID required','err'); return; }
+  addLog(`Queuing PNG tiles: ${map_type}/${run_id}`,'info');
+  const r=await api('POST','/api/v1/admin/trigger-generate-tiles',{map_type,run_id});
+  if(r){ toast('PNG tile generation queued','ok'); }
+}
+
+async function doGenGrids(){
+  const map_type=document.getElementById('gen-map').value;
+  const run_id=document.getElementById('gen-runid').value.trim();
+  if(!run_id){ toast('Run ID required','err'); return; }
+  addLog(`Queuing JSON grids: ${map_type}/${run_id}`,'info');
+  const r=await api('POST','/api/v1/admin/trigger-generate-grids',{map_type,run_id});
+  if(r){ toast('JSON grid generation queued','ok'); }
+}
+
+function syncRunId(){
+  const date=document.getElementById('dl-date').value.trim()||new Date().toISOString().slice(0,10).replace(/-/g,'');
+  const hour=document.getElementById('dl-hour').value;
+  document.getElementById('gen-runid').value=`${date}_${String(hour).padStart(2,'0')}z`;
+}
+
+function initSelects(){
+  const today=new Date().toISOString().slice(0,10).replace(/-/g,'');
+  document.getElementById('disc-date').value=today;
+  document.getElementById('dl-date').value=today;
+  ['dl-map','gen-map'].forEach(id=>{
+    const sel=document.getElementById(id);
+    MAP_TYPES.forEach(mt=>{ const o=document.createElement('option'); o.value=mt; o.textContent=`${MAP_ICONS[mt]} ${MAP_LABELS[mt]}`; sel.appendChild(o); });
+  });
+  syncRunId();
+}
+
+// -----------------------------------------------------------------------
+// Server log streaming
+// -----------------------------------------------------------------------
+let _logSeq = 0;
+let _logTail = true;
+let _logAll = [];   // all fetched entries (newest first)
+let _logTimer = null;
+
+function toggleTail(){
+  _logTail = !_logTail;
+  document.getElementById('tail-toggle').textContent = `📌 tail: ${_logTail?'ON':'OFF'}`;
+  if(_logTail) _scrollLogBottom();
+}
+
+function clearServerLog(){
+  _logAll = [];
+  _logSeq = 0;
+  document.getElementById('server-log').innerHTML = '';
+}
+
+function _scrollLogBottom(){
+  const box = document.getElementById('server-log');
+  box.scrollTop = box.scrollHeight;
+}
+
+function _fmtTime(epochSec){
+  const d = new Date(epochSec * 1000);
+  return d.toLocaleTimeString('en-GB',{hour12:false,timeZone:'UTC'});
+}
+
+function _shortName(name){
+  // "app.services.scheduler_service" → "scheduler_service"
+  const parts = name.split('.');
+  return parts[parts.length-1];
+}
+
+function applyFilter(){
+  const showInfo = document.getElementById('flt-info').checked;
+  const showWarn = document.getElementById('flt-warn').checked;
+  const showErr  = document.getElementById('flt-err').checked;
+  const txt = (document.getElementById('flt-text').value||'').toLowerCase();
+  const box = document.getElementById('server-log');
+  box.innerHTML = '';
+  const fragment = document.createDocumentFragment();
+  // _logAll is newest-first; display oldest-first (natural log order)
+  const toShow = [..._logAll].reverse();
+  for(const e of toShow){
+    if(e.level==='info' && !showInfo) continue;
+    if(e.level==='warn' && !showWarn) continue;
+    if(e.level==='err'  && !showErr)  continue;
+    if(txt && !e.msg.toLowerCase().includes(txt)) continue;
+    const row = document.createElement('div');
+    row.className = 'log-row';
+    row.innerHTML = `<span class="log-ts">${_fmtTime(e.ts)}</span><span class="log-name" title="${esc(e.name)}">${esc(_shortName(e.name))}</span><span class="log-${e.level}">${esc(e.msg.split(' — ').slice(1).join(' — ')||e.msg)}</span>`;
+    fragment.appendChild(row);
+  }
+  box.appendChild(fragment);
+  if(_logTail) _scrollLogBottom();
+}
+
+async function pollServerLogs(){
+  try{
+    const r = await fetch(`${BASE}/api/v1/admin/logs?since=${_logSeq}&limit=200`);
+    if(r.ok){
+      const data = await r.json();
+      if(data.lines && data.lines.length > 0){
+        _logAll = [...data.lines, ..._logAll].slice(0, 2000);
+        _logSeq = data.max_seq;
+        applyFilter();
+      }
+    }
+  }catch(e){}
+  _logTimer = setTimeout(pollServerLogs, 2000);
+}
+
+initSelects(); checkHealth(); refreshJobs(); refreshRuns(); pollServerLogs();
+setInterval(checkHealth,10000); setInterval(refreshRuns,20000);
+// refreshJobs polling managed adaptively by _schedPoll(); server log polling by pollServerLogs()
+</script>
+</body>
+</html>
