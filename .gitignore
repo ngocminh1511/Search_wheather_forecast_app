@@ -1,6 +1,7 @@
 # Ignore generated weather datasets
 /data/
-
+data.zip
+.vscode/
 # Python cache
 __pycache__/
 *.py[cod]
