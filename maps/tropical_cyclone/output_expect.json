@@ -1,0 +1,50 @@
+{
+  "metadata": {
+    "storm_id": "WP112026",
+    "name": "YAGI",
+    "basin": "WP",
+    "agency_source": "JMA + GFS",
+    "last_updated": "2026-04-22T00:00:00Z"
+  },
+  "track": [
+    {
+      "type": "past",
+      "timestamp": "2026-04-21T18:00:00Z",
+      "location": { "lat": 15.2, "lng": 118.5 },
+      "wind_speed": 45,
+      "pressure_hpa": 1002,
+      "pressure_mmHg": 751,
+      "forward_speed": 10,
+      "direction": "WNW",
+      "status_text": "Áp thấp nhiệt đới",
+      "icon_tag": "TDgray.png",
+      "cone_radius_km": 0
+    },
+    {
+      "type": "current",
+      "timestamp": "2026-04-22T00:00:00Z",
+      "location": { "lat": 16.1, "lng": 117.8 },
+      "wind_speed": 65,
+      "pressure_hpa": 990,
+      "pressure_mmHg": 742,
+      "forward_speed": 7,
+      "direction": "NW",
+      "status_text": "Bão nhiệt đới đã hình thành",
+      "icon_tag": "TS.png",
+      "cone_radius_km": 0
+    },
+    {
+      "type": "forecast",
+      "timestamp": "2026-04-23T00:00:00Z", 
+      "location": { "lat": 18.5, "lng": 114.2 },
+      "wind_speed": 130,
+      "pressure_hpa": 960,
+      "pressure_mmHg": 720,
+      "forward_speed": 15,
+      "direction": "WNW",
+      "status_text": "Dự báo: Bão mạnh lên",
+      "icon_tag": "TY.png",
+      "cone_radius_km": 80
+    }
+  ]
+}

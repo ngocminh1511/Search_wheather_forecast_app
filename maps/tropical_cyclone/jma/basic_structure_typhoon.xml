@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Report xmlns="http://xml.kishou.go.jp/jmaxml1/">
+
+  <Head>
+    <Title>Typhoon Information</Title>
+    <ReportDateTime>2026-07-10T12:00:00Z</ReportDateTime>
+    <TargetDateTime>2026-07-10T12:00:00Z</TargetDateTime>
+  </Head>
+
+  <Body>
+
+    <!-- 🔥 CURRENT -->
+    <MeteorologicalInfo>
+      <DateTime>2026-07-10T12:00:00Z</DateTime>
+
+      <Item>
+        <Kind>
+          <Property>
+            <Type>TropicalCyclone</Type>
+          </Property>
+        </Kind>
+
+        <TropicalCyclonePart>
+          <Name>Sinlaku</Name>
+          <InternationalNumber>2603</InternationalNumber>
+          <Class>Typhoon</Class>
+        </TropicalCyclonePart>
+
+        <CenterPart>
+          <Coordinate>+18.2+125.6/</Coordinate>
+        </CenterPart>
+
+        <IntensityPart>
+          <CentralPressure unit="hPa">980</CentralPressure>
+          <MaximumWindSpeed unit="kt">65</MaximumWindSpeed>
+        </IntensityPart>
+
+      </Item>
+    </MeteorologicalInfo>
+
+    <!-- 🔥 +12H -->
+    <MeteorologicalInfo>
+      <DateTime>2026-07-11T00:00:00Z</DateTime>
+
+      <Item>
+        <Kind>
+          <Property>
+            <Type>Forecast</Type>
+          </Property>
+        </Kind>
+
+        <CenterPart>
+          <Coordinate>+19.5+123.0/</Coordinate>
+        </CenterPart>
+
+      </Item>
+    </MeteorologicalInfo>
+
+    <!-- 🔥 +24H -->
+    <MeteorologicalInfo>
+      <DateTime>2026-07-11T12:00:00Z</DateTime>
+
+      <Item>
+        <Kind>
+          <Property>
+            <Type>Forecast</Type>
+          </Property>
+        </Kind>
+
+        <CenterPart>
+          <Coordinate>+21.0+121.0/</Coordinate>
+        </CenterPart>
+
+      </Item>
+    </MeteorologicalInfo>
+
+    <!-- 🔥 +48H -->
+    <MeteorologicalInfo>
+      <DateTime>2026-07-12T12:00:00Z</DateTime>
+
+      <Item>
+        <Kind>
+          <Property>
+            <Type>Forecast</Type>
+          </Property>
+        </Kind>
+
+        <CenterPart>
+          <Coordinate>+23.5+118.5/</Coordinate>
+        </CenterPart>
+
+      </Item>
+    </MeteorologicalInfo>
+
+    <!-- 🔥 +72H -->
+    <MeteorologicalInfo>
+      <DateTime>2026-07-13T12:00:00Z</DateTime>
+
+      <Item>
+        <Kind>
+          <Property>
+            <Type>Forecast</Type>
+          </Property>
+        </Kind>
+
+        <CenterPart>
+          <Coordinate>+26.0+116.0/</Coordinate>
+        </CenterPart>
+
+      </Item>
+    </MeteorologicalInfo>
+
+    <!-- 🔥 +96H -->
+    <MeteorologicalInfo>
+      <DateTime>2026-07-14T12:00:00Z</DateTime>
+
+      <Item>
+        <Kind>
+          <Property>
+            <Type>Forecast</Type>
+          </Property>
+        </Kind>
+
+        <CenterPart>
+          <Coordinate>+28.0+114.0/</Coordinate>
+        </CenterPart>
+
+      </Item>
+    </MeteorologicalInfo>
+
+  </Body>
+</Report>
