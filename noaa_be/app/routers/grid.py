@@ -6,7 +6,7 @@ grid.py — JSON grid endpoint for wind_animation and rain_advanced animation.
 GET /api/v1/maps/{map_type}/grid
   ?run_id=20260406_00z
   &fff=0
-  &product=wind_10m  (wind_animation only)
+  &product=wind_30m  (wind_animation only)
   &downsample=1.0    (degree resolution, default 1.0)
   &bbox=west,south,east,north  (optional crop)
 """
@@ -28,9 +28,10 @@ def get_grid(
     map_type: str,
     run_id: Optional[str] = Query(default=None),
     fff: int = Query(default=0, ge=0),
-    product: str = Query(default="wind_10m"),
+    product: str = Query(default="wind_30m"),
     downsample: float = Query(default=1.0, ge=0.25, le=5.0),
-    bbox: Optional[str] = Query(default=None, description="west,south,east,north"),
+    bbox: Optional[str] = Query(
+        default=None, description="west,south,east,north"),
 ) -> GridResponse:
     cfg = get_settings()
 
@@ -50,11 +51,14 @@ def get_grid(
     if bbox:
         parts = bbox.split(",")
         if len(parts) != 4:
-            raise HTTPException(status_code=400, detail="bbox must be 'west,south,east,north'")
+            raise HTTPException(
+                status_code=400, detail="bbox must be 'west,south,east,north'")
         try:
-            bbox_tuple = tuple(float(p) for p in parts)  # type: ignore[assignment]
+            bbox_tuple = tuple(float(p)
+                               for p in parts)  # type: ignore[assignment]
         except ValueError:
-            raise HTTPException(status_code=400, detail="bbox values must be numeric")
+            raise HTTPException(
+                status_code=400, detail="bbox values must be numeric")
 
     # Check JSON cache first (no GRIB needed if already cached)
     from ..services.grid_service import _grid_cache_path

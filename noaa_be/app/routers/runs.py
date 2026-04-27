@@ -44,8 +44,10 @@ def run_availability(run_id: str) -> RunAvailabilityResponse:
     for mt in map_specs:
         fffs = load_map_availability(run_id, mt)
         # Check first and last frame readiness as a proxy
-        first_tiles = tiles_ready(mt, run_id, fffs[0], _first_product(mt), cfg.TILES_DIR) if fffs else False
-        first_grid = json_grid_ready(mt, run_id, fffs[0], "wind_10m", cfg.JSON_GRIDS_DIR) if (fffs and mt == "wind_animation") else False
+        first_tiles = tiles_ready(mt, run_id, fffs[0], _first_product(
+            mt), cfg.TILES_DIR) if fffs else False
+        first_grid = json_grid_ready(mt, run_id, fffs[0], "wind_30m", cfg.JSON_GRIDS_DIR) if (
+            fffs and mt == "wind_animation") else False
         availability[mt] = MapAvailability(
             fff_available=fffs,
             tiles_ready=first_tiles,

@@ -12,6 +12,7 @@ numpy>=1.26.0
 Pillow>=10.3.0          # PNG encode + bicubic resize
 mercantile>=1.2.1       # Web Mercator tile math (lat/lon ↔ z/x/y)
 matplotlib>=3.8.0       # colormaps (turbo, Blues, YlGnBu, etc.)
+rasterio>=1.3.0         # GDAL warp: equirectangular → EPSG:3857 reprojection
 
 # ── Scheduler ─────────────────────────────────────────────────────────────────
 APScheduler>=3.10.4
@@ -21,3 +22,7 @@ APScheduler>=3.10.4
 
 # ── Utilities ─────────────────────────────────────────────────────────────────
 python-dotenv>=1.0.1    # load .env
+
+# ── Testing ───────────────────────────────────────────────────────────────────
+pytest>=7.4.0           # testing framework
+hypothesis>=6.92.0      # property-based testing

@@ -19,6 +19,7 @@ Job state is kept in-memory in JOB_STATUS dict for the /admin/jobs endpoint.
 
 import logging
 import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -27,7 +28,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
 from ..config import get_settings
-from ..core.discovery import discover_cycle, latest_available_run, load_available_fff
+from ..core.discovery import discover_cycle, find_latest_accessible_cycle, latest_available_run, load_available_fff
 from ..core.downloader import download_map, run_id_from_date
 from ..core.map_specs import MAP_SPECS, segment_fff
 from ..services.availability_service import (
@@ -35,11 +36,19 @@ from ..services.availability_service import (
     prune_old_cloud_runs,
     run_id_to_datetime,
 )
+from ..core.db import (
+    init_db as db_init,
+    update_job_status as db_update_job_status,
+    get_job_status as db_get_job_status,
+    get_all_job_status as db_get_all_job_status,
+    reset_cancel_requested as db_reset_cancel,
+    check_cancel_requested,
+    JobCancelledError,
+)
 
 log = logging.getLogger(__name__)
 
 _scheduler: BackgroundScheduler | None = None
-JOB_STATUS: dict[str, dict[str, Any]] = {}
 
 
 # ---------------------------------------------------------------------------
@@ -90,10 +99,27 @@ def _spec_max_fff(map_type: str) -> int:
 # ---------------------------------------------------------------------------
 
 def _job_for_map_type(map_type: str) -> None:
+    # Guard: skip if this map_type is locked for deletion
+    try:
+        from ..services.delete_service import is_map_locked
+        if is_map_locked(map_type):
+            log.info("Skipping scheduler job for %s — locked for deletion", map_type)
+            return
+    except ImportError:
+        pass
+
     from ..services import progress_tracker
     now = datetime.now(tz=timezone.utc)
-    JOB_STATUS.setdefault(map_type, {})["last_started"] = now.isoformat()
-    JOB_STATUS[map_type]["status"] = "running"
+
+    # --- Reset stale cancel flag BEFORE marking as running ---
+    db_reset_cancel(map_type)
+
+    status = db_get_job_status(map_type)
+    status["last_started"] = now.isoformat()
+    status["status"] = "running"
+    status.pop("cancel_requested", None)
+    db_update_job_status(map_type, status)
+
     progress_tracker.reset(map_type)
     progress_tracker.update(
         map_type,
@@ -104,17 +130,32 @@ def _job_for_map_type(map_type: str) -> None:
         frames_done=0,
         tiles_saved=0,
         tiles_skipped=0,
+        started_at=now.isoformat(),
     )
     try:
         _run_map_job(map_type)
-        JOB_STATUS[map_type]["status"] = "ok"
-        JOB_STATUS[map_type]["last_success"] = datetime.now(tz=timezone.utc).isoformat()
-        JOB_STATUS[map_type].pop("last_error", None)
+        status = db_get_job_status(map_type)
+        status["status"] = "ok"
+        status["last_success"] = datetime.now(tz=timezone.utc).isoformat()
+        status.pop("last_error", None)
+        status.pop("cancel_requested", None)
+        db_update_job_status(map_type, status)
         progress_tracker.update(map_type, step="done", step_detail="Hoàn thành ✓")
+    except JobCancelledError:
+        log.info("Job cancelled by user: map_type=%s", map_type)
+        status = db_get_job_status(map_type)
+        status["status"] = "cancelled"
+        status["cancel_requested"] = False
+        status.pop("last_error", None)
+        db_update_job_status(map_type, status)
+        progress_tracker.update(map_type, step="cancelled", step_detail="Đã hủy bởi người dùng ✗")
     except Exception as exc:
         log.exception("Job failed for map_type=%s: %s", map_type, exc)
-        JOB_STATUS[map_type]["status"] = "error"
-        JOB_STATUS[map_type]["last_error"] = str(exc)
+        status = db_get_job_status(map_type)
+        status["status"] = "error"
+        status["last_error"] = str(exc)
+        status.pop("cancel_requested", None)
+        db_update_job_status(map_type, status)
         progress_tracker.update(map_type, step="error", step_detail=str(exc)[:120])
 
 
@@ -124,8 +165,18 @@ def _run_map_job(map_type: str) -> None:
 
     cfg = get_settings()
 
-    # 1. Determine which GFS cycle to probe
-    probe_date, probe_hour = latest_available_run(cfg.AVAILABLE_DIR)
+    # 1. Determine which GFS cycle to probe.
+    #    Strategy: probe backward from current UTC time to find the most recent cycle
+    #    that is actually accessible on NOAA.  This avoids the scheduler targeting a
+    #    stale cycle from the on-disk availability files whose data has already been
+    #    purged from NOAA (causing 404 on every download attempt).
+    max_fff = _spec_max_fff(map_type)
+    progress_tracker.update(map_type, step="checking",
+                            step_detail="Tìm chu kỳ GFS mới nhất trên NOAA…")
+    probe_date, probe_hour = find_latest_accessible_cycle(max_fff)
+    if probe_date is None:
+        # NOAA unreachable — fall back to the latest we have on disk
+        probe_date, probe_hour = latest_available_run(cfg.AVAILABLE_DIR)
     if probe_date is None:
         utc_now = datetime.now(tz=timezone.utc)
         probe_date = utc_now.date()
@@ -136,14 +187,15 @@ def _run_map_job(map_type: str) -> None:
 
     # 2. Check if we already have all expected tiles/grids
     expected = _compute_needed_fffs(map_type, cfg)
-    progress_tracker.update(map_type, step="checking", step_detail=f"Kiểm tra output hiện có cho {run_id}…")
+    progress_tracker.update(map_type, step="checking",
+                            step_detail=f"Kiểm tra output hiện có cho {run_id}…")
     if _all_output_ready(map_type, run_id, expected, cfg):
         log.info("All output ready for %s/%s — skip", map_type, run_id)
-        progress_tracker.update(map_type, step="done", step_detail="Dữ liệu đầy đủ, bỏ qua ✓")
+        progress_tracker.update(map_type, step="done",
+                                step_detail="Dữ liệu đầy đủ, bỏ qua ✓")
         return
 
     # 3. Discover available fff on NOAA
-    max_fff = _spec_max_fff(map_type)
     progress_tracker.update(
         map_type, step="discovering",
         step_detail=f"Probing NOAA — {run_id} (max f{max_fff:03d})…",
@@ -157,15 +209,26 @@ def _run_map_job(map_type: str) -> None:
             rpm_limit=cfg.RPM_LIMIT,
         )
     except Exception as exc:
-        log.warning("Discovery failed for %s: %s — will try downloading anyway", map_type, exc)
-        progress_tracker.update(map_type, step_detail=f"Discover thất bại: {exc} — thử tải anyway")
+        log.warning(
+            "Discovery failed for %s: %s — will try downloading anyway", map_type, exc)
+        progress_tracker.update(
+            map_type, step_detail=f"Discover thất bại: {exc} — thử tải anyway")
 
-    # 4. Filter expected fff to those confirmed available on NOAA
-    available = load_available_fff(cfg.AVAILABLE_DIR, map_type, probe_date, probe_hour)
-    to_download = [f for f in expected if (not available or f in available)]
+    # 4. Filter expected fff to those confirmed available on NOAA.
+    #    Safety net: if the availability data has no overlap with 'expected' (e.g.
+    #    only contains f048 while expected = [3..24]), download all expected frames
+    #    rather than silently skipping everything.
+    available = load_available_fff(
+        cfg.AVAILABLE_DIR, map_type, probe_date, probe_hour)
+    if available and any(f in available for f in expected):
+        to_download = [f for f in expected if f in available]
+    else:
+        # Either no availability data or no overlap — download all expected
+        to_download = list(expected)
 
     # 5. Download
-    log.info("Downloading %s/%s (%d frames)", map_type, run_id, len(to_download))
+    log.info("Downloading %s/%s (%d frames)",
+             map_type, run_id, len(to_download))
     progress_tracker.update(
         map_type,
         step="downloading",
@@ -173,6 +236,12 @@ def _run_map_job(map_type: str) -> None:
         frames_total=len(to_download),
         frames_done=0,
     )
+    _dl_start = time.perf_counter()
+
+    # Check cancel before starting download
+    if check_cancel_requested(map_type):
+        raise JobCancelledError("Job cancelled by user before download.")
+
     download_map(
         map_type=map_type,
         run_date=probe_date,
@@ -182,7 +251,16 @@ def _run_map_job(map_type: str) -> None:
         rpm_limit=cfg.RPM_LIMIT,
         skip_existing=True,
     )
-    progress_tracker.update(map_type, frames_done=len(to_download), step_detail=f"Tải xong {len(to_download)} files GRIB2")
+    _dl_elapsed = round(time.perf_counter() - _dl_start, 1)
+
+    # Check cancel again after download, before tile generation
+    if check_cancel_requested(map_type):
+        raise JobCancelledError("Job cancelled by user after download.")
+    status = db_get_job_status(map_type)
+    status["download_duration_s"] = _dl_elapsed
+    db_update_job_status(map_type, status)
+    
+    progress_tracker.update(map_type, frames_done=len(to_download), download_duration_s=_dl_elapsed, step_detail=f"Tải xong {len(to_download)} files GRIB2")
 
     # 6. Generate output
     from ..services.tile_generator import _MAP_PRODUCTS
@@ -191,17 +269,25 @@ def _run_map_job(map_type: str) -> None:
     progress_tracker.update(
         map_type,
         step="generating",
-        step_detail=f"Tạo output — {len(to_download)} frames × {max(len(products),1)} products…",
+        step_detail=f"Tạo output — {len(to_download)} frames × {max(len(products), 1)} products…",
         frames_total=total_frames,
         frames_done=0,
         tiles_saved=0,
         tiles_skipped=0,
     )
+    _gen_start = time.perf_counter()
     _generate_output(map_type, run_id, to_download, cfg)
+    _gen_elapsed = round(time.perf_counter() - _gen_start, 1)
+    status = db_get_job_status(map_type)
+    status["tile_duration_s"] = _gen_elapsed
+    db_update_job_status(map_type, status)
+    
+    progress_tracker.update(map_type, tile_duration_s=_gen_elapsed)
 
     # 7. Prune cloud circular buffer
     if map_type in cfg.ARCHIVE_MAP_TYPES:
-        pruned = prune_old_cloud_runs(map_type, cfg.AVAILABLE_DIR, cfg.TILES_DIR)
+        pruned = prune_old_cloud_runs(
+            map_type, cfg.AVAILABLE_DIR, cfg.TILES_DIR)
         if pruned:
             log.info("Pruned old runs for %s: %s", map_type, pruned)
 
@@ -250,7 +336,8 @@ def _generate_output(map_type: str, run_id: str, fffs: list[int], cfg: Any) -> N
                         grids_dir=cfg.JSON_GRIDS_DIR,
                     )
                 except Exception as exc:
-                    log.warning("Grid gen failed %s/%s/f%03d/%s: %s", map_type, run_id, fff, product_name, exc)
+                    log.warning("Grid gen failed %s/%s/f%03d/%s: %s",
+                                map_type, run_id, fff, product_name, exc)
     else:
         # PNG tiles (and optionally JSON grids for rain_advanced)
         generate_run(
@@ -271,7 +358,8 @@ def _generate_output(map_type: str, run_id: str, fffs: list[int], cfg: Any) -> N
                         grids_dir=cfg.JSON_GRIDS_DIR,
                     )
                 except Exception as exc:
-                    log.warning("Rain grid failed %s/f%03d: %s", run_id, fff, exc)
+                    log.warning("Rain grid failed %s/f%03d: %s",
+                                run_id, fff, exc)
 
 
 # ---------------------------------------------------------------------------
@@ -281,6 +369,10 @@ def _generate_output(map_type: str, run_id: str, fffs: list[int], cfg: Any) -> N
 def start_scheduler() -> None:
     global _scheduler
     cfg = get_settings()
+    
+    # Khởi tạo DB table nếu chưa có
+    db_init()
+    
     if not cfg.SCHEDULER_ENABLED:
         log.info("Scheduler disabled via SCHEDULER_ENABLED=false")
         return
@@ -298,14 +390,18 @@ def start_scheduler() -> None:
             replace_existing=True,
             misfire_grace_time=300,
         )
-        JOB_STATUS[map_type] = {
-            "status": "idle",
-            "last_started": None,
-            "last_success": None,
-        }
+        
+        status = db_get_job_status(map_type)
+        if not status:
+            db_update_job_status(map_type, {
+                "status": "idle",
+                "last_started": None,
+                "last_success": None,
+            })
 
     _scheduler.start()
-    log.info("Scheduler started: %d jobs, interval=%d min", len(MAP_SPECS), interval_min)
+    log.info("Scheduler started: %d jobs, interval=%d min",
+             len(MAP_SPECS), interval_min)
 
 
 def stop_scheduler() -> None:
@@ -317,9 +413,11 @@ def stop_scheduler() -> None:
 
 def trigger_job(map_type: str) -> None:
     """Fire a job immediately in a daemon thread (for admin endpoint)."""
-    t = threading.Thread(target=_job_for_map_type, args=[map_type], daemon=True)
+    t = threading.Thread(target=_job_for_map_type,
+                         args=[map_type], daemon=True)
     t.start()
 
 
 def get_all_job_status() -> dict[str, dict]:
-    return dict(JOB_STATUS)
+    return db_get_all_job_status()
+

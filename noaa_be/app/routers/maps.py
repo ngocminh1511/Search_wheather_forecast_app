@@ -64,7 +64,8 @@ def map_timeline(
     rid = _resolve_run_id(run_id)
     fffs = load_map_availability(rid, map_type)
     if not fffs:
-        raise HTTPException(status_code=404, detail=f"No frames available for {map_type}/{rid}")
+        raise HTTPException(
+            status_code=404, detail=f"No frames available for {map_type}/{rid}")
 
     run_dt = run_id_to_datetime(rid)
     now_utc = datetime.now(tz=timezone.utc)
@@ -81,7 +82,8 @@ def map_timeline(
 
         if is_json_only:
             tr = False
-            has_grid = json_grid_ready(map_type, rid, fff, "wind_10m", cfg.JSON_GRIDS_DIR)
+            has_grid = json_grid_ready(
+                map_type, rid, fff, "wind_30m", cfg.JSON_GRIDS_DIR)
         else:
             tr = tiles_ready(map_type, rid, fff, first_product, cfg.TILES_DIR)
             has_grid = (map_type == "rain_advanced") and json_grid_ready(
@@ -114,7 +116,8 @@ def map_legend(
 ) -> LegendResponse:
     meta = get_colormap_meta(map_type, product)
     raw_stops = get_legend_stops(map_type, product, n_stops)
-    stops = [LegendStop(value=s["value"], color_hex=s["color_hex"]) for s in raw_stops]
+    stops = [LegendStop(value=s["value"], color_hex=s["color_hex"])
+             for s in raw_stops]
     return LegendResponse(
         map_type=map_type,
         product=product,

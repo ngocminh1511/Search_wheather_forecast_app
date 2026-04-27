@@ -14,10 +14,14 @@ Unit normalization:
 """
 
 from dataclasses import dataclass
+import threading
 from pathlib import Path
 
 import numpy as np
 import xarray as xr
+
+# Global lock to prevent eccodes C-library from crashing on Windows during concurrent GRIB reads
+_GRIB_LOCK = threading.Lock()
 
 
 @dataclass
@@ -37,7 +41,8 @@ class GribField:
 def _squeeze_to_2d(arr: np.ndarray) -> np.ndarray:
     arr = np.squeeze(arr)
     if arr.ndim != 2:
-        raise ValueError(f"Expected 2-D array after squeeze, got shape {arr.shape}")
+        raise ValueError(
+            f"Expected 2-D array after squeeze, got shape {arr.shape}")
     return arr
 
 
@@ -45,7 +50,8 @@ def _get_coord(ds: xr.Dataset, candidates: list[str]) -> np.ndarray:
     for name in candidates:
         if name in ds.coords:
             return ds[name].values
-    raise ValueError(f"Cannot find coordinate from candidates {candidates} in dataset")
+    raise ValueError(
+        f"Cannot find coordinate from candidates {candidates} in dataset")
 
 
 def _normalize(short_name: str, values: np.ndarray) -> tuple[np.ndarray, str]:
@@ -66,8 +72,8 @@ def _normalize(short_name: str, values: np.ndarray) -> tuple[np.ndarray, str]:
         v = values * 3600.0
         return v.astype(np.float32), "mm/h"
 
-    if sn in ("snod",):
-        # m → cm
+    if sn in ("snod", "sde"):
+        # m → cm  (snod and sde are both snow depth in metres)
         v = values * 100.0
         return v.astype(np.float32), "cm"
 
@@ -78,7 +84,7 @@ def _normalize(short_name: str, values: np.ndarray) -> tuple[np.ndarray, str]:
             v = v * 100.0
         return np.clip(v, 0.0, 100.0), "%"
 
-    if sn in ("ugrd", "u10", "u", "vgrd", "v10", "v"):
+    if sn in ("ugrd", "u10", "10u", "u", "vgrd", "v10", "10v", "v"):
         return values.astype(np.float32), "m/s"
 
     if sn in ("crain", "csnow"):
@@ -97,40 +103,43 @@ def read_first_field(file_path: Path, filter_by_keys: dict | None = None) -> Gri
     Open a GRIB2 file and return the first variable found.
     Optionally filter with cfgrib backend_kwargs (e.g. {'shortName': 'prate'}).
     """
-    open_kwargs: dict = {"engine": "cfgrib"}
+    bk: dict = {"indexpath": ""}
     if filter_by_keys:
-        open_kwargs["backend_kwargs"] = {"filter_by_keys": filter_by_keys}
+        bk["filter_by_keys"] = filter_by_keys
+    open_kwargs: dict = {"engine": "cfgrib", "backend_kwargs": bk}
 
-    ds = xr.open_dataset(file_path, **open_kwargs)
-    try:
-        if not ds.data_vars:
-            raise ValueError(f"No data variables in {file_path.name}")
+    with _GRIB_LOCK:
+        ds = xr.open_dataset(file_path, **open_kwargs)
+        try:
+            if not ds.data_vars:
+                raise ValueError(f"No data variables in {file_path.name}")
 
-        var_name = list(ds.data_vars)[0]
-        da = ds[var_name]
+            var_name = list(ds.data_vars)[0]
+            da = ds[var_name]
 
-        lat = _get_coord(ds, ["latitude", "lat"])
-        lon = _get_coord(ds, ["longitude", "lon"])
+            lat = _get_coord(ds, ["latitude", "lat"])
+            lon = _get_coord(ds, ["longitude", "lon"])
 
-        raw = _squeeze_to_2d(da.values)
-        short_name = da.attrs.get("GRIB_shortName", var_name)
-        values, unit = _normalize(short_name, raw)
+            raw = _squeeze_to_2d(da.values)
+            short_name = da.attrs.get("GRIB_shortName", var_name)
+        finally:
+            ds.close()
 
-        # Ensure lat is descending (North→South) for mercator consistency
-        if lat[0] < lat[-1]:
-            lat = lat[::-1]
-            values = values[::-1, :]
+    values, unit = _normalize(short_name, raw)
 
-        return GribField(
-            variable=var_name,
-            short_name=short_name,
-            lat=lat.astype(np.float32),
-            lon=lon.astype(np.float32),
-            values=values,
-            unit=unit,
-        )
-    finally:
-        ds.close()
+    # Ensure lat is descending (North→South) for mercator consistency
+    if lat[0] < lat[-1]:
+        lat = lat[::-1]
+        values = values[::-1, :]
+
+    return GribField(
+        variable=var_name,
+        short_name=short_name,
+        lat=lat.astype(np.float32),
+        lon=lon.astype(np.float32),
+        values=values,
+        unit=unit,
+    )
 
 
 def read_multi_fields(
@@ -145,41 +154,42 @@ def read_multi_fields(
     import cfgrib  # local import to keep startup fast if cfgrib not installed
 
     result: dict[str, GribField] = {}
-    datasets = cfgrib.open_datasets(str(file_path))
+    with _GRIB_LOCK:
+        datasets = cfgrib.open_datasets(str(file_path), backend_kwargs={"indexpath": ""})
+        try:
+            for sn in short_names:
+                for ds in datasets:
+                    matched_var = None
+                    for vname in ds.data_vars:
+                        da = ds[vname]
+                        if da.attrs.get("GRIB_shortName", "").lower() == sn.lower():
+                            matched_var = (vname, da)
+                            break
+                    if matched_var is None:
+                        continue
 
-    for sn in short_names:
-        for ds in datasets:
-            matched_var = None
-            for vname in ds.data_vars:
-                da = ds[vname]
-                if da.attrs.get("GRIB_shortName", "").lower() == sn.lower():
-                    matched_var = (vname, da)
-                    break
-            if matched_var is None:
-                continue
+                    vname, da = matched_var
+                    lat = _get_coord(ds, ["latitude", "lat"])
+                    lon = _get_coord(ds, ["longitude", "lon"])
+                    raw = _squeeze_to_2d(da.values)
+                    values, unit = _normalize(sn, raw)
 
-            vname, da = matched_var
-            lat = _get_coord(ds, ["latitude", "lat"])
-            lon = _get_coord(ds, ["longitude", "lon"])
-            raw = _squeeze_to_2d(da.values)
-            values, unit = _normalize(sn, raw)
+                    if lat[0] < lat[-1]:
+                        lat = lat[::-1]
+                        values = values[::-1, :]
 
-            if lat[0] < lat[-1]:
-                lat = lat[::-1]
-                values = values[::-1, :]
-
-            result[sn] = GribField(
-                variable=vname,
-                short_name=sn,
-                lat=lat.astype(np.float32),
-                lon=lon.astype(np.float32),
-                values=values,
-                unit=unit,
-            )
-            break  # found this short_name, move to next
-
-        for ds in datasets:
-            ds.close()
+                    result[sn] = GribField(
+                        variable=vname,
+                        short_name=sn,
+                        lat=lat.astype(np.float32),
+                        lon=lon.astype(np.float32),
+                        values=values,
+                        unit=unit,
+                    )
+                    break  # found this short_name, move to next
+        finally:
+            for ds in datasets:
+                ds.close()
 
     return result
 

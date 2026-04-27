@@ -136,7 +136,8 @@ def tiles_ready(map_type: str, run_id: str, fff: int, product: str, tiles_dir: P
     """Check if at least zoom z=0 tile exists for this frame."""
     cfg = get_settings()
     d = tiles_dir or cfg.TILES_DIR
-    tile_0_0_0 = d / map_type / run_id / f"{fff:03d}" / product / "0" / "0" / "0.png"
+    tile_0_0_0 = d / map_type / run_id / \
+        f"{fff:03d}" / product / "0" / "0" / "0.png"
     return tile_0_0_0.exists()
 
 
@@ -180,7 +181,7 @@ def prune_old_cloud_runs(
         return []
 
     ids = all_run_ids(d)
-    to_prune = ids[cfg.KEEP_CYCLES:]
+    to_prune = ids[cfg.CLOUD_KEEP_CYCLES:]
     pruned = []
     for run_id in to_prune:
         run_tile_dir = td / map_type / run_id

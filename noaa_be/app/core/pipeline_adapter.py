@@ -24,6 +24,7 @@ from .downloader import (
 )
 from .discovery import (
     discover_cycle,
+    find_latest_accessible_cycle,
     load_available_fff,
     latest_available_run,
 )

@@ -66,12 +66,12 @@ class GridResponse(BaseModel):
 
 
 class AdminJobStatus(BaseModel):
-    status: str                    # "idle" | "running" | "ok" | "error"
+    status: str                    # "idle" | "running" | "ok" | "error" | "cancelled"
     last_started: str | None = None
     last_success: str | None = None
     last_error: str | None = None
     # Live progress (populated while running; retained after job ends)
-    step: str | None = None        # "checking"|"discovering"|"downloading"|"generating"|"done"|"error"
+    step: str | None = None        # "checking"|"discovering"|"downloading"|"staging"|"swapping"|"generating"|"done"|"cancelled"|"error"
     step_detail: str | None = None
     run_id: str | None = None
     frames_total: int | None = None
@@ -80,3 +80,6 @@ class AdminJobStatus(BaseModel):
     current_product: str | None = None
     tiles_saved: int | None = None
     tiles_skipped: int | None = None
+    started_at: str | None = None          # ISO UTC — for UI elapsed-time calculation
+    download_duration_s: float | None = None
+    tile_duration_s: float | None = None

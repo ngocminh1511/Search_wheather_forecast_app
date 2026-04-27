@@ -61,19 +61,19 @@ MAP_SPECS: Dict[str, MapSpec] = {
 
     "rain_basic": MapSpec(
         map_type="rain_basic",
-        description="APCP at surface — 24h every 3h",
+        description="APCP at surface — 24h every 3h (f003–f024; no APCP at f000)",
         products=[
             Product(
                 name="apcp_surface",
                 query={"lev_surface": "on", "var_APCP": "on"},
             ),
         ],
-        fff_segments_full=[(0, 24, 3)],
+        fff_segments_full=[(3, 24, 3)],
     ),
 
     "rain_advanced": MapSpec(
         map_type="rain_advanced",
-        description="PRATE + CRAIN + CSNOW at surface — 24h every 3h",
+        description="PRATE + CRAIN + CSNOW (+ CICEP/CFRZR/CPOFP) at surface — 24h every 3h (f003–f024)",
         products=[
             Product(
                 name="rain_adv_surface",
@@ -82,10 +82,13 @@ MAP_SPECS: Dict[str, MapSpec] = {
                     "var_PRATE": "on",
                     "var_CRAIN": "on",
                     "var_CSNOW": "on",
+                    "var_CICEP": "on",
+                    "var_CFRZR": "on",
+                    "var_CPOFP": "on",
                 },
             ),
         ],
-        fff_segments_full=[(0, 24, 3)],
+        fff_segments_full=[(3, 24, 3)],
     ),
 
     "cloud_total": MapSpec(
@@ -175,6 +178,22 @@ MAP_SPECS: Dict[str, MapSpec] = {
             Product(
                 name="wind_200mb",
                 query={"lev_200_mb": "on", "var_UGRD": "on", "var_VGRD": "on"},
+            ),
+        ],
+        fff_segments_full=[(0, 120, 1), (123, 384, 3)],
+    ),
+
+    "wind_surface": MapSpec(
+        map_type="wind_surface",
+        description="Animated Wind Map at 10m height (Base PNG + Field Bin)",
+        products=[
+            Product(
+                name="wind_10m",
+                query={
+                    "lev_10_m_above_ground": "on",
+                    "var_UGRD": "on",
+                    "var_VGRD": "on",
+                },
             ),
         ],
         fff_segments_full=[(0, 120, 1), (123, 384, 3)],

@@ -1,4 +1,5 @@
 from __future__ import annotations
+from .services.log_buffer import install_handler as _install_log_buffer
 
 """
 main.py — FastAPI application entry point.
@@ -31,7 +32,6 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 # Install in-memory log buffer so admin UI can stream logs
-from .services.log_buffer import install_handler as _install_log_buffer
 _install_log_buffer()
 
 
@@ -39,12 +39,34 @@ _install_log_buffer()
 # Lifespan (startup / shutdown)
 # ---------------------------------------------------------------------------
 
+def _warmup_eccodes() -> None:
+    """Force eccodes to initialise its MEMFS definitions in the main thread.
+
+    On Windows the eccodes wheel embeds definitions in an in-memory filesystem
+    (MEMFS).  If two threads trigger initialisation simultaneously, the C
+    library prints harmless but noisy "syntax error at line 1 of
+    /MEMFS/definitions/boot.def" messages.  Calling any eccodes function here
+    — before the request-handling threads start — serialises the one-time
+    bootstrap so those messages never appear during normal operation.
+    """
+    try:
+        import eccodes as _ec  # noqa: PLC0415
+        _ec.codes_get_api_version()
+        log.info("eccodes initialised (version %s, definitions: %s)",
+                 _ec.__version__, _ec.codes_definition_path())
+    except Exception as exc:  # pragma: no cover
+        log.warning("eccodes warm-up failed (non-fatal): %s", exc)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     cfg = get_settings()
-    log.info("Starting noaa_be  base_dir=%s", cfg.BASE_DIR)
+    log.info("Starting noaa_be  base_dir=%s db_dir=%s",
+             cfg.BASE_DIR, cfg.DB_DIR)
+    # Warm up eccodes so Windows MEMFS is initialised before concurrent requests
+    _warmup_eccodes()
     # Ensure storage dirs exist
-    for d in [cfg.TILES_DIR, cfg.JSON_GRIDS_DIR, cfg.STAGING_DIR, cfg.AVAILABLE_DIR]:
+    for d in [cfg.DATA_DIR, cfg.TILES_DIR, cfg.JSON_GRIDS_DIR, cfg.STAGING_DIR, cfg.AVAILABLE_DIR]:
         d.mkdir(parents=True, exist_ok=True)
     start_scheduler()
     yield
@@ -89,9 +111,10 @@ def create_app() -> FastAPI:
     app.include_router(grid.router,   prefix=api_prefix, tags=["Grid"])
     app.include_router(admin.router,  prefix=api_prefix, tags=["Admin"])
 
-    # Admin UI — http://localhost:8000/admin-ui/
+    # Admin UI — http://localhost:8000/admin/
     _static_dir = Path(__file__).parent / "static"
-    app.mount("/admin-ui", StaticFiles(directory=str(_static_dir), html=True), name="admin-ui")
+    app.mount("/admin", StaticFiles(directory=str(_static_dir),
+              html=True), name="admin-ui")
 
     return app
 

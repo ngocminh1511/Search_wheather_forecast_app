@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-"""
-tiles.py — serve pre-generated PNG tiles or generate lazily for z >= TILE_ZOOM_EAGER_MAX+1.
+"""noaa_be.app.routers.tiles
+
+Serve pre-generated PNG tiles or generate lazily for z >= TILE_ZOOM_EAGER_MAX+1.
 
 Route: GET /tiles/{map_type}/{run_id}/{fff}/{product}/{z}/{x}/{y}.png
 """
@@ -10,7 +11,6 @@ from fastapi import APIRouter, HTTPException, Response
 from fastapi.responses import FileResponse
 
 from ..config import get_settings
-from ..services.tile_generator import get_tile_lazy
 
 router = APIRouter(prefix="/tiles")
 
@@ -18,8 +18,15 @@ _CACHE_CONTROL = "public, max-age=86400, immutable"
 
 
 @router.get(
-    "/{map_type}/{run_id}/{fff}/{product_name}/{z}/{x}/{y}.png",
-    responses={200: {"content": {"image/png": {}}}},
+    "/{map_type}/{run_id}/{fff}/{product_name}/{z}/{x}/{y}.{ext}",
+    responses={
+        200: {
+            "content": {
+                "image/png": {},
+                "application/octet-stream": {}
+            }
+        }
+    },
 )
 def get_tile(
     map_type: str,
@@ -29,38 +36,31 @@ def get_tile(
     z: int,
     x: int,
     y: int,
+    ext: str,
 ) -> Response:
     cfg = get_settings()
 
-    if z < 0 or z > 10:
-        raise HTTPException(status_code=400, detail="Zoom must be 0..10")
+    # Keep a hard safety cap at z=10 unless you explicitly relax it.
+    # (Higher zooms can be very expensive and may degrade quality due to 8192px canvas cap.)
+    max_z = min(int(getattr(cfg, "TILE_ZOOM_LAZY_MAX", 10)), 10)
+    if z < 0 or z > max_z:
+        raise HTTPException(status_code=400, detail=f"Zoom must be 0..{max_z}")
 
     # Pregenerated tile
-    tile_path = cfg.TILES_DIR / map_type / run_id / f"{fff:03d}" / product_name / str(z) / str(x) / f"{y}.png"
+    if ext not in ("png", "bin"):
+        raise HTTPException(status_code=400, detail="Extension must be png or bin")
+        
+    tile_path = cfg.TILES_DIR / map_type / run_id / \
+        f"{fff:03d}" / product_name / str(z) / str(x) / f"{y}.{ext}"
+        
+    media_type = "image/png" if ext == "png" else "application/octet-stream"
+    
     if tile_path.exists():
         return FileResponse(
             path=str(tile_path),
-            media_type="image/png",
+            media_type=media_type,
             headers={"Cache-Control": _CACHE_CONTROL},
         )
 
-    # Lazy generation for z > TILE_ZOOM_EAGER_MAX
-    if z > cfg.TILE_ZOOM_EAGER_MAX:
-        png_bytes = get_tile_lazy(
-            map_type=map_type,
-            run_id=run_id,
-            fff=fff,
-            product_name=product_name,
-            z=z, x=x, y=y,
-            tiles_dir=cfg.TILES_DIR,
-            data_dir=cfg.DATA_DIR,
-        )
-        if png_bytes is None:
-            raise HTTPException(status_code=404, detail="Tile not available (source GRIB missing)")
-        return Response(
-            content=png_bytes,
-            media_type="image/png",
-            headers={"Cache-Control": _CACHE_CONTROL},
-        )
-
+    # API now only serves pre-built tiles. No lazy generation allowed.
     raise HTTPException(status_code=404, detail="Tile not found")

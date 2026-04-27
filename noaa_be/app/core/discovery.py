@@ -51,7 +51,9 @@ def _fetch_idx(url: str, retries: int = 3) -> tuple[bool, str]:
             with urlopen(req, timeout=60) as resp:
                 return True, resp.read().decode("utf-8", errors="replace")
         except HTTPError as exc:
-            if exc.code == 404:
+            # 404 = file does not exist, 403 = access forbidden / cycle not yet ready.
+            # Both are non-retryable: return immediately so callers don't hang.
+            if exc.code in (403, 404):
                 return False, ""
             retry_after = exc.headers.get("Retry-After")
             time.sleep(float(retry_after) if retry_after else min(30, 2 ** attempt))
@@ -153,15 +155,19 @@ def discover_cycle(
         idx_cache[max_fff] = last_body
         fff_existing = list(range(0, max_fff + 1))
 
-        # Grab f000 idx body for product-matching (only costs 1 extra request)
+        # Grab f000 idx body so f000 can be matched correctly (e.g. no APCP at f000).
         f0_url = _idx_url(run_date, run_hour, 0)
         f0_exists, f0_body = _fetch_idx(f0_url)
         if f0_exists and f0_body:
             idx_cache[0] = f0_body
-        # For product matching we use f000 body; all other frames assumed identical structure
-        _body_for_matching = f0_body if f0_body else last_body
 
-        # Build idx_cache with the same body for all frames (variables don't vary by frame)
+        # For product matching, use last_body (max_fff frame) for all intermediate
+        # frames.  This ensures accumulated variables like APCP — which do NOT appear
+        # in the f000 .idx — are correctly detected as available in f003..f024+.
+        # f000 still uses its own body (set above) so analysis-only fields are handled.
+        _body_for_matching = last_body
+
+        # Build idx_cache with the representative body for all frames
         for fff in fff_existing:
             if fff not in idx_cache:
                 idx_cache[fff] = _body_for_matching
@@ -311,3 +317,40 @@ def latest_available_run(available_dir: Path) -> tuple[date | None, int | None]:
     if best is None:
         return None, None
     return best
+
+
+def find_latest_accessible_cycle(max_fff: int, max_lookback: int = 8) -> tuple[date | None, int | None]:
+    """
+    Find the most recent GFS cycle whose max_fff .idx file is accessible on NOAA.
+
+    Probes backward from the current UTC time in 6-hour steps (one GFS cycle each).
+    With 403/404 being non-retryable in _fetch_idx, each probe takes < 1 s on failure
+    and is only ~1 s on success — so up to 8 probes ≈ 8 s worst case.
+
+    Returns (run_date, run_hour) of the most recent accessible cycle, or (None, None).
+    """
+    import logging
+    from datetime import datetime, timedelta, timezone
+    log = logging.getLogger(__name__)
+
+    utc_now = datetime.now(tz=timezone.utc)
+    # Round down to the most recent 6-hour boundary
+    base_h = (utc_now.hour // 6) * 6
+    base_dt = utc_now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(hours=base_h)
+
+    for i in range(max_lookback):
+        candidate_dt = base_dt - timedelta(hours=i * 6)
+        candidate_date = candidate_dt.date()
+        candidate_hour = candidate_dt.hour
+
+        test_url = _idx_url(candidate_date, candidate_hour, max_fff)
+        exists, _ = _fetch_idx(test_url)
+        if exists:
+            log.info(
+                "find_latest_accessible_cycle: found %s_%02dz (tried %d cycle(s))",
+                candidate_date.strftime("%Y%m%d"), candidate_hour, i + 1,
+            )
+            return candidate_date, candidate_hour
+
+    log.warning("find_latest_accessible_cycle: no accessible cycle found in last %d tries", max_lookback)
+    return None, None

@@ -1,0 +1,718 @@
+<!doctype html>
+<html lang="vi">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Mưa nâng cao — Advanced Precipitation</title>
+        <link
+            rel="stylesheet"
+            href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        />
+        <style>
+            *,
+            *::before,
+            *::after {
+                box-sizing: border-box;
+                margin: 0;
+                padding: 0;
+            }
+            html,
+            body {
+                height: 100%;
+                background: #0d1117;
+                color: #e6edf3;
+                font-family:
+                    -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+                font-size: 14px;
+            }
+            #map {
+                position: absolute;
+                inset: 0;
+                bottom: 80px;
+            }
+
+            /* Particle canvas — must sit ABOVE the Leaflet tile pane */
+            #precip-fx-canvas {
+                position: absolute;
+                inset: 0;
+                bottom: 80px;
+                pointer-events: none;
+                z-index: 450; /* above Leaflet tiles (400) below controls */
+            }
+
+            #controls {
+                position: absolute;
+                bottom: 0;
+                left: 0;
+                right: 0;
+                height: 80px;
+                background: #161b22;
+                border-top: 1px solid #30363d;
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                padding: 0 16px;
+            }
+            #play-btn {
+                background: #388bfd;
+                color: #fff;
+                border: none;
+                border-radius: 6px;
+                padding: 7px 18px;
+                font-size: 14px;
+                cursor: pointer;
+                flex-shrink: 0;
+            }
+            #play-btn:hover {
+                background: #1f6feb;
+            }
+            #slider {
+                flex: 1;
+                accent-color: #388bfd;
+            }
+            #frame-label {
+                font-size: 12px;
+                color: #8b949e;
+                white-space: nowrap;
+                min-width: 220px;
+            }
+            #fx-toggle {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                font-size: 12px;
+                color: #8b949e;
+                cursor: pointer;
+                flex-shrink: 0;
+            }
+            #fx-toggle input {
+                accent-color: #388bfd;
+            }
+
+            #legend {
+                position: absolute;
+                top: 12px;
+                right: 12px;
+                z-index: 900;
+                background: rgba(13, 17, 23, 0.88);
+                border: 1px solid #30363d;
+                border-radius: 8px;
+                padding: 10px 14px;
+                font-size: 11px;
+                min-width: 160px;
+            }
+            #legend h4 {
+                font-size: 12px;
+                margin-bottom: 8px;
+                color: #e6edf3;
+            }
+            .legend-group {
+                margin-bottom: 6px;
+            }
+            .legend-group-label {
+                font-weight: 700;
+                font-size: 10px;
+                color: #8b949e;
+                margin-bottom: 3px;
+            }
+            .legend-row {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                margin-bottom: 2px;
+            }
+            .legend-swatch {
+                width: 14px;
+                height: 14px;
+                border-radius: 2px;
+                flex-shrink: 0;
+            }
+            #loading {
+                position: absolute;
+                inset: 0;
+                bottom: 80px;
+                background: rgba(13, 17, 23, 0.7);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                z-index: 1000;
+                font-size: 16px;
+                color: #8b949e;
+            }
+            #loading.hidden {
+                display: none;
+            }
+        </style>
+    </head>
+    <body>
+        <div id="map"></div>
+        <canvas id="precip-fx-canvas"></canvas>
+
+        <div id="controls">
+            <button id="play-btn">▶ Play</button>
+            <input
+                id="slider"
+                type="range"
+                min="0"
+                max="0"
+                value="0"
+                step="1"
+            />
+            <span id="frame-label">—</span>
+            <label id="fx-toggle">
+                <input type="checkbox" id="fx-enabled" checked />
+                ⚡ Hiệu ứng
+            </label>
+        </div>
+
+        <div id="legend">
+            <h4>🌩️ Mưa nâng cao</h4>
+            <div class="legend-group">
+                <div class="legend-group-label">RAIN (mưa)</div>
+                <div class="legend-row">
+                    <div
+                        class="legend-swatch"
+                        style="background: #adffba"
+                    ></div>
+                    <span>Rất nhẹ (&lt;0.5 mm/h)</span>
+                </div>
+                <div class="legend-row">
+                    <div
+                        class="legend-swatch"
+                        style="background: #f0e000"
+                    ></div>
+                    <span>Nhẹ (1–5 mm/h)</span>
+                </div>
+                <div class="legend-row">
+                    <div
+                        class="legend-swatch"
+                        style="background: #f89000"
+                    ></div>
+                    <span>Vừa (5–10 mm/h)</span>
+                </div>
+                <div class="legend-row">
+                    <div
+                        class="legend-swatch"
+                        style="background: #f83000"
+                    ></div>
+                    <span>Nặng (10–25 mm/h)</span>
+                </div>
+                <div class="legend-row">
+                    <div
+                        class="legend-swatch"
+                        style="background: #c800c8"
+                    ></div>
+                    <span>Rất nặng (&gt;25 mm/h)</span>
+                </div>
+            </div>
+            <div class="legend-group">
+                <div class="legend-group-label">MIXED (hỗn hợp)</div>
+                <div class="legend-row">
+                    <div
+                        class="legend-swatch"
+                        style="background: #ffddf5"
+                    ></div>
+                    <span>Nhẹ</span>
+                </div>
+                <div class="legend-row">
+                    <div
+                        class="legend-swatch"
+                        style="background: #cc33aa"
+                    ></div>
+                    <span>Nặng</span>
+                </div>
+            </div>
+            <div class="legend-group">
+                <div class="legend-group-label">SNOW (tuyết)</div>
+                <div class="legend-row">
+                    <div
+                        class="legend-swatch"
+                        style="background: #aaffff"
+                    ></div>
+                    <span>Nhẹ</span>
+                </div>
+                <div class="legend-row">
+                    <div
+                        class="legend-swatch"
+                        style="background: #0055cc"
+                    ></div>
+                    <span>Vừa</span>
+                </div>
+                <div class="legend-row">
+                    <div
+                        class="legend-swatch"
+                        style="background: #001166"
+                    ></div>
+                    <span>Dày đặc</span>
+                </div>
+            </div>
+        </div>
+
+        <div id="loading">Đang tải dữ liệu…</div>
+
+        <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+        <script>
+            "use strict";
+
+            // ─────────────────────────────────────────────────────────────────────────
+            // Config
+            // ─────────────────────────────────────────────────────────────────────────
+            const API_BASE = location.origin;
+            const MAP_TYPE = "rain_advanced";
+            const PRODUCT_BASE = "precip_base";
+            const PRODUCT_FX = "precip_fx";
+            const FX_THRESHOLD = 8; // R|G|B > this → active pixel
+
+            // ─────────────────────────────────────────────────────────────────────────
+            // Leaflet map
+            // ─────────────────────────────────────────────────────────────────────────
+            const map = L.map("map", { zoomControl: true }).setView(
+                [20, 100],
+                4,
+            );
+
+            L.tileLayer(
+                "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
+                {
+                    attribution: "© OpenStreetMap © CARTO",
+                    subdomains: "abcd",
+                    maxZoom: 10,
+                },
+            ).addTo(map);
+
+            let baseLayer = null; // L.TileLayer for precip_base
+            let currentRunId = null;
+            let frames = []; // list of fff values
+            let currentIdx = 0;
+
+            // ─────────────────────────────────────────────────────────────────────────
+            // Canvas / particle system
+            // ─────────────────────────────────────────────────────────────────────────
+            const canvas = document.getElementById("precip-fx-canvas");
+            const ctx = canvas.getContext("2d");
+            let fxEnabled = true;
+            let fxTexture = null; // ImageData of composited fx mask (viewport-sized)
+            let fxTexturePrev = null; // previous frame texture for crossfade
+            let fxBlendProgress = 1.0; // 0→1 crossfade progress
+            const FX_BLEND_MS = 400;
+            let fxBlendStart = 0;
+            let particles = [];
+            let rafHandle = null;
+
+            function resizeCanvas() {
+                canvas.width = map.getSize().x;
+                canvas.height = map.getSize().y;
+            }
+            map.on("resize", resizeCanvas);
+            resizeCanvas();
+
+            // Particle system ─────────────────────────────────────────────────────────
+            const MAX_PARTICLES = 2000;
+
+            function sampleFxTexture(px, py) {
+                if (!fxTexture) return null;
+                const ix = Math.min(
+                    Math.max(Math.round(px), 0),
+                    canvas.width - 1,
+                );
+                const iy = Math.min(
+                    Math.max(Math.round(py), 0),
+                    canvas.height - 1,
+                );
+                const i = (iy * fxTexture.width + ix) * 4;
+                return {
+                    rain: fxTexture.data[i],
+                    mixed: fxTexture.data[i + 1],
+                    snow: fxTexture.data[i + 2],
+                    mixRatio: fxTexture.data[i + 3] / 255,
+                };
+            }
+
+            class Particle {
+                constructor(x, y, type) {
+                    this.type = type; // "rain" | "snow"
+                    this.x = x;
+                    this.y = y;
+                    this.alpha = 0.5 + Math.random() * 0.4;
+                    if (type === "rain") {
+                        this.vx = 0.5 + Math.random() * 0.5; // slight diagonal
+                        this.vy = 3 + Math.random() * 3;
+                        this.life = 0.6 + Math.random() * 0.4;
+                        this.len = 4 + Math.random() * 6;
+                    } else {
+                        this.vx = (Math.random() - 0.5) * 0.4;
+                        this.vy = 0.5 + Math.random() * 0.8;
+                        this.life = 1.0;
+                        this.phase = Math.random() * Math.PI * 2;
+                        this.r = 1.5 + Math.random() * 1.5;
+                    }
+                    this.maxLife = this.life;
+                }
+                update(dt) {
+                    this.life -= dt;
+                    if (this.type === "snow") {
+                        this.x +=
+                            this.vx +
+                            Math.sin(this.phase + this.life * 2) * 0.3;
+                        this.y += this.vy;
+                    } else {
+                        this.x += this.vx;
+                        this.y += this.vy;
+                    }
+                }
+                draw(ctx) {
+                    const a = this.alpha * (this.life / this.maxLife);
+                    if (this.type === "rain") {
+                        ctx.strokeStyle = `rgba(100,180,255,${a.toFixed(2)})`;
+                        ctx.lineWidth = 1;
+                        ctx.beginPath();
+                        ctx.moveTo(this.x, this.y);
+                        ctx.lineTo(
+                            this.x + this.vx * this.len,
+                            this.y + this.vy * this.len * 0.25,
+                        );
+                        ctx.stroke();
+                    } else {
+                        ctx.fillStyle = `rgba(220,240,255,${a.toFixed(2)})`;
+                        ctx.beginPath();
+                        ctx.arc(this.x, this.y, this.r, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+                }
+                alive() {
+                    return this.life > 0;
+                }
+            }
+
+            function spawnParticles() {
+                if (!fxTexture || !fxEnabled) return;
+                const budget = MAX_PARTICLES - particles.length;
+                if (budget <= 0) return;
+
+                const attempts = Math.min(budget * 3, 150);
+                for (
+                    let i = 0;
+                    i < attempts && particles.length < MAX_PARTICLES;
+                    i++
+                ) {
+                    const px = Math.random() * canvas.width;
+                    const py = Math.random() * canvas.height;
+                    const s = sampleFxTexture(px, py);
+                    if (!s) continue;
+
+                    const hasRain = s.rain > FX_THRESHOLD;
+                    const hasMixed = s.mixed > FX_THRESHOLD;
+                    const hasSnow = s.snow > FX_THRESHOLD;
+                    if (!hasRain && !hasMixed && !hasSnow) continue;
+
+                    // Probability proportional to channel intensity
+                    const totalW =
+                        (hasRain ? s.rain : 0) +
+                        (hasMixed ? s.mixed : 0) +
+                        (hasSnow ? s.snow : 0);
+                    const roll = Math.random() * totalW;
+
+                    let ptype;
+                    if (roll < (hasRain ? s.rain : 0)) {
+                        ptype = "rain";
+                    } else if (
+                        roll <
+                        (hasRain ? s.rain : 0) + (hasMixed ? s.mixed : 0)
+                    ) {
+                        // mixed: pick rain or snow based on mix_ratio
+                        ptype = Math.random() < s.mixRatio ? "snow" : "rain";
+                    } else {
+                        ptype = "snow";
+                    }
+
+                    // Probability gate — high-intensity pixels spawn more
+                    const intensity = ptype === "rain" ? s.rain : s.snow;
+                    if (Math.random() * 255 > intensity) continue;
+
+                    particles.push(new Particle(px, py, ptype));
+                }
+            }
+
+            let lastTick = null;
+            function tick(ts) {
+                rafHandle = requestAnimationFrame(tick);
+                const dt = lastTick
+                    ? Math.min((ts - lastTick) / 1000, 0.1)
+                    : 0.016;
+                lastTick = ts;
+
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                if (!fxEnabled) {
+                    particles = [];
+                    return;
+                }
+
+                // Crossfade fx textures
+                if (fxBlendProgress < 1.0 && fxTexturePrev) {
+                    fxBlendProgress = Math.min(
+                        (ts - fxBlendStart) / FX_BLEND_MS,
+                        1.0,
+                    );
+                }
+
+                spawnParticles();
+
+                particles = particles.filter((p) => p.alive());
+                for (const p of particles) {
+                    p.update(dt);
+                    p.draw(ctx);
+                }
+            }
+
+            function startFx() {
+                if (rafHandle) cancelAnimationFrame(rafHandle);
+                lastTick = null;
+                rafHandle = requestAnimationFrame(tick);
+            }
+
+            // ─────────────────────────────────────────────────────────────────────────
+            // FX texture compositing from precip_fx tiles
+            // ─────────────────────────────────────────────────────────────────────────
+            async function loadFxTexture(runId, fff) {
+                const z = map.getZoom();
+                const bounds = map.getBounds();
+                const tiles = [];
+
+                // Find all tiles in current viewport
+                const nwTile = latLngToTile(
+                    bounds.getNorthWest().lat,
+                    bounds.getNorthWest().lng,
+                    z,
+                );
+                const seTile = latLngToTile(
+                    bounds.getSouthEast().lat,
+                    bounds.getSouthEast().lng,
+                    z,
+                );
+                const maxTile = Math.pow(2, z) - 1;
+
+                const x0 = Math.max(0, nwTile.x),
+                    x1 = Math.min(maxTile, seTile.x);
+                const y0 = Math.max(0, nwTile.y),
+                    y1 = Math.min(maxTile, seTile.y);
+
+                for (let tx = x0; tx <= x1; tx++) {
+                    for (let ty = y0; ty <= y1; ty++) {
+                        tiles.push({ x: tx, y: ty, z });
+                    }
+                }
+
+                // Compose into offscreen canvas matching viewport
+                const offscreen = document.createElement("canvas");
+                offscreen.width = canvas.width;
+                offscreen.height = canvas.height;
+                const oc = offscreen.getContext("2d");
+
+                const fffStr = String(fff).padStart(3, "0");
+                const promises = tiles.map(async ({ x, y, z: tz }) => {
+                    const url = `${API_BASE}/tiles/${MAP_TYPE}/${runId}/${fffStr}/${PRODUCT_FX}/${tz}/${x}/${y}.png`;
+                    try {
+                        const img = await loadImage(url);
+                        // Compute where this tile sits in viewport pixels
+                        const tileNW = tileToLatLng(x, y, tz);
+                        const tileSE = tileToLatLng(x + 1, y + 1, tz);
+                        const tileNWPx = map.latLngToContainerPoint([
+                            tileNW.lat,
+                            tileNW.lng,
+                        ]);
+                        const tileSEPx = map.latLngToContainerPoint([
+                            tileSE.lat,
+                            tileSE.lng,
+                        ]);
+                        oc.drawImage(
+                            img,
+                            tileNWPx.x,
+                            tileNWPx.y,
+                            tileSEPx.x - tileNWPx.x,
+                            tileSEPx.y - tileNWPx.y,
+                        );
+                    } catch (_) {
+                        /* tile may not exist yet */
+                    }
+                });
+
+                await Promise.all(promises);
+
+                fxTexturePrev = fxTexture;
+                fxTexture = oc.getImageData(
+                    0,
+                    0,
+                    offscreen.width,
+                    offscreen.height,
+                );
+                fxBlendProgress = 0.0;
+                fxBlendStart = performance.now();
+                particles = []; // reset — new zones
+            }
+
+            function loadImage(url) {
+                return new Promise((resolve, reject) => {
+                    const img = new Image();
+                    img.crossOrigin = "anonymous";
+                    img.onload = () => resolve(img);
+                    img.onerror = reject;
+                    img.src = url;
+                });
+            }
+
+            // Tile coordinate math (Web Mercator / slippy-map standard)
+            function latLngToTile(lat, lng, z) {
+                const n = Math.pow(2, z);
+                const x = Math.floor(((lng + 180) / 360) * n);
+                const latRad = (lat * Math.PI) / 180;
+                const y = Math.floor(
+                    ((1 -
+                        Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) /
+                            Math.PI) /
+                        2) *
+                        n,
+                );
+                return { x: Math.max(0, x), y: Math.max(0, y) };
+            }
+
+            function tileToLatLng(x, y, z) {
+                const n = Math.pow(2, z);
+                const lng = (x / n) * 360 - 180;
+                const latRad = Math.atan(
+                    Math.sinh(Math.PI * (1 - (2 * y) / n)),
+                );
+                return { lat: (latRad * 180) / Math.PI, lng };
+            }
+
+            // Reload fx texture when map moves/zooms
+            map.on("moveend zoomend", () => {
+                resizeCanvas();
+                if (currentRunId && frames.length > 0) {
+                    loadFxTexture(currentRunId, frames[currentIdx]);
+                }
+            });
+
+            // ─────────────────────────────────────────────────────────────────────────
+            // Frame switching
+            // ─────────────────────────────────────────────────────────────────────────
+            function setFrame(idx) {
+                currentIdx = idx;
+                const fff = frames[idx];
+                const fffStr = String(fff).padStart(3, "0");
+
+                document.getElementById("frame-label").textContent =
+                    `f${fffStr} (+${fff}h)`;
+                document.getElementById("slider").value = idx;
+
+                // Update base tile layer URL
+                if (baseLayer) {
+                    const url = `${API_BASE}/tiles/${MAP_TYPE}/${currentRunId}/${fffStr}/${PRODUCT_BASE}/{z}/{x}/{y}.png`;
+                    baseLayer.setUrl(url);
+                }
+
+                // Load fx texture for particle system
+                loadFxTexture(currentRunId, fff);
+            }
+
+            // ─────────────────────────────────────────────────────────────────────────
+            // Data loading
+            // ─────────────────────────────────────────────────────────────────────────
+            async function loadLatestRun() {
+                const res = await fetch(`${API_BASE}/api/v1/runs/latest`);
+                if (!res.ok) throw new Error(`/runs/latest → ${res.status}`);
+                const data = await res.json();
+                return data.run_id;
+            }
+
+            async function loadAvailability(runId) {
+                const res = await fetch(
+                    `${API_BASE}/api/v1/runs/${runId}/availability`,
+                );
+                if (!res.ok) throw new Error(`/availability → ${res.status}`);
+                const data = await res.json();
+                const mapEntry = data.maps?.find(
+                    (m) => m.map_type === MAP_TYPE,
+                );
+                return mapEntry?.available_fff ?? [];
+            }
+
+            async function init() {
+                try {
+                    currentRunId = await loadLatestRun();
+                    frames = await loadAvailability(currentRunId);
+
+                    if (frames.length === 0) {
+                        document.getElementById("loading").textContent =
+                            "Chưa có dữ liệu rain_advanced cho run này.";
+                        return;
+                    }
+
+                    // Set slider range
+                    const slider = document.getElementById("slider");
+                    slider.max = frames.length - 1;
+                    slider.value = 0;
+
+                    // Add base tile layer
+                    const fffStr = String(frames[0]).padStart(3, "0");
+                    const initUrl = `${API_BASE}/tiles/${MAP_TYPE}/${currentRunId}/${fffStr}/${PRODUCT_BASE}/{z}/{x}/{y}.png`;
+                    baseLayer = L.tileLayer(initUrl, {
+                        maxZoom: 10,
+                        tileSize: 256,
+                        crossOrigin: true,
+                        opacity: 1,
+                        zIndex: 200,
+                    }).addTo(map);
+
+                    document.getElementById("loading").classList.add("hidden");
+
+                    // Start particle engine
+                    startFx();
+                    setFrame(0);
+                } catch (e) {
+                    document.getElementById("loading").textContent =
+                        "Lỗi: " + e.message;
+                }
+            }
+
+            // ─────────────────────────────────────────────────────────────────────────
+            // Controls
+            // ─────────────────────────────────────────────────────────────────────────
+            const slider = document.getElementById("slider");
+            const playBtn = document.getElementById("play-btn");
+            const fxToggle = document.getElementById("fx-enabled");
+
+            slider.addEventListener("input", (e) =>
+                setFrame(parseInt(e.target.value)),
+            );
+
+            let playing = false;
+            let playTimer = null;
+            playBtn.addEventListener("click", () => {
+                if (!playing) {
+                    playing = true;
+                    playBtn.textContent = "⏸ Pause";
+                    playTimer = setInterval(() => {
+                        const next = (currentIdx + 1) % frames.length;
+                        setFrame(next);
+                    }, 900);
+                } else {
+                    clearInterval(playTimer);
+                    playing = false;
+                    playBtn.textContent = "▶ Play";
+                }
+            });
+
+            fxToggle.addEventListener("change", (e) => {
+                fxEnabled = e.target.checked;
+                if (!fxEnabled) {
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    particles = [];
+                }
+            });
+
+            // Kick off
+            init();
+        </script>
+    </body>
+</html>

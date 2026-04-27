@@ -139,8 +139,13 @@ def download_map(
     min_interval = 60.0 / max(1, rpm_limit)
     last_request_time = 0.0
     results: list[dict] = []
+    
+    from .db import check_cancel_requested, JobCancelledError
 
     for fff in fff_values:
+        if check_cancel_requested(map_type):
+            raise JobCancelledError("Job cancelled by user.")
+            
         for product in spec.products:
             elapsed = time.time() - last_request_time
             if elapsed < min_interval:

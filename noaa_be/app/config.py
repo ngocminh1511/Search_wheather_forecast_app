@@ -4,28 +4,55 @@ import os
 from functools import lru_cache
 from pathlib import Path
 
+try:
+    from dotenv import load_dotenv
+except ImportError:  # pragma: no cover - optional during minimal setups
+    load_dotenv = None
+
+
+_ENV_FILE = Path(__file__).resolve().parents[1] / ".env"
+if load_dotenv is not None and _ENV_FILE.exists():
+    load_dotenv(_ENV_FILE)
+
 
 class Settings:
     """
     All configuration is read from environment variables with sane defaults.
     BASE_DIR auto-detects the workspace root (two levels above this file).
+    DB_DIR may be overridden independently via NOAA_DB_DIR.
     """
 
     def __init__(self) -> None:
         # ── Paths ──────────────────────────────────────────────────────────
-        _default_base = str(Path(__file__).resolve().parents[2])
-        self.BASE_DIR: Path = Path(os.getenv("NOAA_BASE_DIR", _default_base))
-        self.DATA_DIR: Path = self.BASE_DIR / "data"
-        self.AVAILABLE_DIR: Path = self.BASE_DIR / "available"
-        self.TILES_DIR: Path = self.BASE_DIR / "tiles"
-        self.JSON_GRIDS_DIR: Path = self.BASE_DIR / "json_grids"
+        _default_base = Path(__file__).resolve().parents[2]
+        self.BASE_DIR: Path = Path(
+            os.getenv("NOAA_BASE_DIR", str(_default_base))
+        ).resolve()
+        _local_db_dir = self.BASE_DIR / "database"
+        _external_db_dir = self.BASE_DIR.parent / "database"
+        _default_db_dir = (
+            _external_db_dir
+            if not _local_db_dir.exists() and _external_db_dir.exists()
+            else _local_db_dir
+        )
+        self.DB_DIR: Path = Path(
+            os.getenv("NOAA_DB_DIR", str(_default_db_dir))
+        ).resolve()
+        self.DATA_DIR: Path = self.DB_DIR / "data"
+        self.AVAILABLE_DIR: Path = self.DB_DIR / "available"
+        self.TILES_DIR: Path = self.DB_DIR / "tiles"
+        self.JSON_GRIDS_DIR: Path = self.DB_DIR / "json_grids"
         self.SCRIPTS_DIR: Path = self.BASE_DIR / "scripts"
-        self.STAGING_DIR: Path = self.BASE_DIR / "tiles_staging"
+        self.STAGING_DIR: Path = self.DB_DIR / "tiles_staging"
+        self.SHARED_DB_PATH: Path = self.DB_DIR / "noaa_shared.sqlite"
+        self.DATABASE_URL: str = f"sqlite:///{self.SHARED_DB_PATH}"
 
         # ── Tile generation ────────────────────────────────────────────────
         self.TILE_SIZE: int = int(os.getenv("TILE_SIZE", "256"))
-        self.TILE_ZOOM_EAGER_MAX: int = int(os.getenv("TILE_ZOOM_EAGER_MAX", "8"))
-        self.TILE_ZOOM_LAZY_MAX: int = int(os.getenv("TILE_ZOOM_LAZY_MAX", "10"))
+        self.TILE_ZOOM_EAGER_MAX: int = int(
+            os.getenv("TILE_ZOOM_EAGER_MAX", "8"))
+        self.TILE_ZOOM_LAZY_MAX: int = int(
+            os.getenv("TILE_ZOOM_LAZY_MAX", "10"))
         self.TILE_WORKERS: int = int(os.getenv("TILE_WORKERS", "8"))
         # LRU cache for lazy z=6..10 tiles (number of PNG bytes segments)
         self.TILE_CACHE_MB: int = int(os.getenv("TILE_CACHE_MB", "2048"))
@@ -40,6 +67,18 @@ class Settings:
         # Cloud is archive (past) - keep separate circular buffer
         self.CLOUD_KEEP_CYCLES: int = int(os.getenv("CLOUD_KEEP_CYCLES", "4"))
 
+        # ── Pipeline Architecture (Workers & Limits) ────────────────────────
+        self.MAX_DOWNLOAD_WORKERS: int = int(os.getenv("MAX_DOWNLOAD_WORKERS", "2"))
+        self.MAX_PARSE_WORKERS: int = int(os.getenv("MAX_PARSE_WORKERS", "4"))
+        self.MAX_BUILD_WORKERS: int = int(os.getenv("MAX_BUILD_WORKERS", "6"))
+        self.MAX_CUT_WORKERS: int = int(os.getenv("MAX_CUT_WORKERS", "8"))
+        self.MAX_WRITE_WORKERS: int = int(os.getenv("MAX_WRITE_WORKERS", "8"))
+
+        # ── Resource Guards ────────────────────────────────────────────────
+        self.MAX_RAM_PERCENT: float = float(os.getenv("MAX_RAM_PERCENT", "85.0"))
+        self.MAX_CPU_PERCENT: float = float(os.getenv("MAX_CPU_PERCENT", "95.0"))
+        self.MIN_DISK_FREE_GB: float = float(os.getenv("MIN_DISK_FREE_GB", "5.0"))
+
         # ── Server ─────────────────────────────────────────────────────────
         self.HOST: str = os.getenv("HOST", "0.0.0.0")
         self.PORT: int = int(os.getenv("PORT", "8000"))
@@ -52,9 +91,11 @@ class Settings:
         self.APP_VERSION: str = "1.0.0"
 
         # ── Scheduler ──────────────────────────────────────────────────────
-        self.SCHEDULER_ENABLED: bool = os.getenv("SCHEDULER_ENABLED", "true").lower() == "true"
+        self.SCHEDULER_ENABLED: bool = os.getenv(
+            "SCHEDULER_ENABLED", "false").lower() == "true"
         # Interval in minutes between cycle-check jobs
-        self.CHECK_INTERVAL_MINUTES: int = int(os.getenv("CHECK_INTERVAL_MINUTES", "30"))
+        self.CHECK_INTERVAL_MINUTES: int = int(
+            os.getenv("CHECK_INTERVAL_MINUTES", "30"))
         self.SCHEDULER_INTERVAL_MINUTES: int = self.CHECK_INTERVAL_MINUTES
 
         # ── Smart FFF window ────────────────────────────────────────────────
