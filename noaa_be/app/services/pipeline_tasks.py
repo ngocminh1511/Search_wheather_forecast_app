@@ -35,7 +35,7 @@ def task_generate_custom_frame(map_type: str, run_id: str, fff: int, product_nam
                 run_id=run_id, fff=fff,
                 data_dir=cfg.DATA_DIR, output_dir=output_dir,
                 zoom_min=0, zoom_max=cfg.TILE_ZOOM_EAGER_MAX,
-                workers=cfg.TILE_WORKERS, skip_existing=True,
+                workers=cfg.TILE_PROCESS_WORKERS, skip_existing=True,
             )
 
         elif map_type == "cloud_total":
@@ -44,7 +44,7 @@ def task_generate_custom_frame(map_type: str, run_id: str, fff: int, product_nam
                 run_id=run_id, fff=fff,
                 data_dir=cfg.DATA_DIR, output_dir=output_dir,
                 zoom_min=0, zoom_max=cfg.TILE_ZOOM_EAGER_MAX,
-                workers=cfg.TILE_WORKERS, skip_existing=True,
+                workers=cfg.TILE_PROCESS_WORKERS, skip_existing=True,
             )
 
         elif map_type == "wind_surface":
@@ -53,7 +53,7 @@ def task_generate_custom_frame(map_type: str, run_id: str, fff: int, product_nam
                 run_id=run_id, fff=fff,
                 data_dir=cfg.DATA_DIR, output_dir=output_dir,
                 zoom_min=0, zoom_max=cfg.TILE_ZOOM_EAGER_MAX,
-                workers=cfg.TILE_WORKERS, skip_existing=True,
+                workers=cfg.TILE_PROCESS_WORKERS, skip_existing=True,
             )
         else:
             return {"skipped": True, "reason": f"Unknown custom map_type: {map_type}"}
@@ -142,7 +142,11 @@ def task_build_canvas(parse_result: dict) -> dict:
     field: GribField = parse_result["field"]
 
     start_t = time.perf_counter()
-    canvas_size = min((2 ** cfg.TILE_ZOOM_EAGER_MAX) * cfg.TILE_SIZE, 8192)
+    z_max = min(
+        cfg.TILE_ZOOM_EAGER_MAX,
+        cfg.TILE_PER_MAP_ZOOM.get(parse_result["map_type"], cfg.TILE_ZOOM_EAGER_MAX),
+    )
+    canvas_size = min((2 ** z_max) * cfg.TILE_SIZE, 8192)
 
     merc, px_per_meter = _warp_scalar_to_mercator(
         field.values, field.lat, field.lon, canvas_size, resampling=Resampling.bilinear
@@ -206,86 +210,58 @@ def task_cut_and_write_tiles(
     live_dir = cfg.TILES_DIR / map_type / run_id / f"{fff:03d}" / product_name
     staging_dir.mkdir(parents=True, exist_ok=True)
 
-    # Build full tile list for the configured zoom range
     zoom_min = 0
-    zoom_max = cfg.TILE_ZOOM_EAGER_MAX
-    all_tiles = []
-    for z in range(zoom_min, zoom_max + 1):
-        all_tiles.extend(mercantile.tiles(-180, -85.051129, 180, 85.051129, zooms=z))
+    zoom_max = min(cfg.TILE_ZOOM_EAGER_MAX, cfg.TILE_PER_MAP_ZOOM.get(map_type, cfg.TILE_ZOOM_EAGER_MAX))
 
-    # Pre-filter: skip tiles that already exist with non-zero size on staging OR live
-    # (REAL filesystem check — stat() must succeed AND size > 0)
-    pending_tiles = []
-    skipped = 0
-    for tile in all_tiles:
-        out_s = staging_dir / str(tile.z) / str(tile.x) / f"{tile.y}.png"
-        out_l = live_dir / str(tile.z) / str(tile.x) / f"{tile.y}.png"
-        s_ok = out_s.exists() and out_s.stat().st_size > 0
-        l_ok = out_l.exists() and out_l.stat().st_size > 0
-        if s_ok or l_ok:
-            skipped += 1
-        else:
-            pending_tiles.append(tile)
-
-    log.debug(
-        "Cut %s/%s/f%03d/%s: total=%d pending=%d skipped=%d",
-        map_type, run_id, fff, product_name,
-        len(all_tiles), len(pending_tiles), skipped,
+    from ..core.metatile_processor import process_all_metatiles
+    
+    summary = process_all_metatiles(
+        npy_path=npy_path,
+        px_per_meter=px_per_meter,
+        cmap_type=cmap_type,
+        cmap_product=cmap_product,
+        output_dir=staging_dir,
+        zoom_min=zoom_min,
+        zoom_max=zoom_max,
+        workers=cfg.TILE_PROCESS_WORKERS
     )
-
-    saved = errors = 0
-
-    def _cut_one(tile: mercantile.Tile) -> str:
-        out = staging_dir / str(tile.z) / str(tile.x) / f"{tile.y}.png"
-        out.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            png_bytes = _cut_tile_from_merc(merc, px_per_meter, tile, cmap_type, cmap_product)
-            if not png_bytes:
-                return "err:empty_png"
-            out.write_bytes(png_bytes)
-            # Validate written file
-            if not out.exists() or out.stat().st_size == 0:
-                return "err:write_failed"
-            return "ok"
-        except Exception as exc:
-            log.error(f"Tile cut error {tile}: {exc}")
-            return f"err:{exc}"
-
-    # 16 I/O threads per process — PNG encode is CPU-fast, disk I/O is the bottleneck
-    n_threads = min(16, len(pending_tiles)) if pending_tiles else 1
-    with ThreadPoolExecutor(max_workers=n_threads) as pool:
-        futures = [pool.submit(_cut_one, t) for t in pending_tiles]
-        for fut in as_completed(futures):
-            result = fut.result()
-            if result == "ok":
-                saved += 1
-            else:
-                errors += 1
-                log.warning(f"Tile error in {map_type}/{run_id}/f{fff:03d}/{product_name}: {result}")
-
-    # Final validation: count actual PNGs written (staging only, live hasn't been swapped yet)
-    actual_on_disk = sum(1 for _ in staging_dir.rglob("*.png"))
-    expected_total = len(all_tiles)
+    
+    # Write manifest
+    import json
+    manifest = {
+        "ready": True,
+        "product": product_name,
+        "total": summary["total"],
+        "saved": summary["saved"],
+        "empty_skipped": summary["empty_skipped"],
+        "errors": summary["errors"],
+        "chunks_written": summary["chunks_written"],
+        "total_size_bytes": summary["bytes"],
+        "format": "chunk",
+        "tile_format": cfg.TILE_FORMAT_DEFAULT,
+        "tile_ext": "webp" if cfg.TILE_FORMAT_DEFAULT == "webp" else "png",
+        "timestamp": time.time()
+    }
+    (staging_dir / "manifest.json").write_text(json.dumps(manifest, indent=2))
 
     log.info(
-        "Cut complete %s/%s/f%03d/%s: saved=%d skipped=%d errors=%d disk_actual=%d/%d duration=%.2fs",
+        "Cut complete %s/%s/f%03d/%s: saved=%d chunks=%d empty_skipped=%d errors=%d duration=%.2fs",
         map_type, run_id, fff, product_name,
-        saved, skipped, errors, actual_on_disk, expected_total,
+        summary["saved"], summary["chunks_written"], summary["empty_skipped"], summary["errors"],
         time.perf_counter() - start_t,
     )
 
-    if errors > 0:
+    if summary["errors"] > 0:
         raise RuntimeError(
-            f"Cut had {errors} tile errors for {map_type}/{run_id}/f{fff:03d}/{product_name}. "
-            f"Only {actual_on_disk}/{expected_total} tiles on disk."
+            f"Cut had {summary['errors']} tile errors for {map_type}/{run_id}/f{fff:03d}/{product_name}."
         )
 
     return {
-        "saved": saved,
-        "skipped": skipped,
-        "errors": errors,
-        "total": expected_total,
-        "actual_on_disk": actual_on_disk,
+        "saved": summary["saved"],
+        "empty_skipped": summary["empty_skipped"],
+        "errors": summary["errors"],
+        "chunks_written": summary["chunks_written"],
+        "total": summary["total"],
         "cut_duration_s": time.perf_counter() - start_t,
     }
 
@@ -312,14 +288,14 @@ def publish_staging_to_live(map_type: str, run_id: str):
         return
 
     # Count staging tiles before merge (sanity check)
-    staging_count = sum(1 for _ in staging.rglob("*.png"))
+    staging_count = sum(1 for _ in staging.rglob("*.chunk"))
     if staging_count == 0:
         log.warning(
-            f"publish_staging_to_live: staging dir exists but has 0 PNG files — skipping publish: {staging}"
+            f"publish_staging_to_live: staging dir exists but has 0 CHUNK files — skipping publish: {staging}"
         )
         return
 
-    log.info(f"Publishing {map_type}/{run_id}: {staging_count} tiles from staging → live")
+    log.info(f"Publishing {map_type}/{run_id}: {staging_count} chunks from staging → live")
 
     live.mkdir(parents=True, exist_ok=True)
 
@@ -329,8 +305,8 @@ def publish_staging_to_live(map_type: str, run_id: str):
         shutil.copytree(str(staging), str(live), dirs_exist_ok=True)
 
         # Validate live dir after merge
-        live_count = sum(1 for _ in live.rglob("*.png"))
-        log.info(f"Published {map_type}/{run_id}: live now has {live_count} PNG tiles")
+        live_count = sum(1 for _ in live.rglob("*.chunk"))
+        log.info(f"Published {map_type}/{run_id}: live now has {live_count} CHUNK files")
 
         # Only remove staging if merge was successful
         shutil.rmtree(str(staging), ignore_errors=True)

@@ -11,6 +11,7 @@ from fastapi import APIRouter, HTTPException, Response
 from fastapi.responses import FileResponse
 
 from ..config import get_settings
+from ..core.chunk_format import TileLookup, ChunkReader
 
 router = APIRouter(prefix="/tiles")
 
@@ -23,6 +24,7 @@ _CACHE_CONTROL = "public, max-age=86400, immutable"
         200: {
             "content": {
                 "image/png": {},
+                "image/webp": {},
                 "application/octet-stream": {}
             }
         }
@@ -47,14 +49,36 @@ def get_tile(
         raise HTTPException(status_code=400, detail=f"Zoom must be 0..{max_z}")
 
     # Pregenerated tile
-    if ext not in ("png", "bin"):
-        raise HTTPException(status_code=400, detail="Extension must be png or bin")
+    if ext not in ("png", "webp", "bin"):
+        raise HTTPException(status_code=400, detail="Extension must be png, webp or bin")
         
-    tile_path = cfg.TILES_DIR / map_type / run_id / \
-        f"{fff:03d}" / product_name / str(z) / str(x) / f"{y}.{ext}"
-        
-    media_type = "image/png" if ext == "png" else "application/octet-stream"
+    base_dir = cfg.TILES_DIR / map_type / run_id / f"{fff:03d}" / product_name
+    if ext == "png":
+        media_type = "image/png"
+    elif ext == "webp":
+        media_type = "image/webp"
+    else:
+        media_type = "application/octet-stream"
     
+    # 1. Try to read from chunk
+    chunk_path = TileLookup.get_chunk_path(base_dir, z, x, y)
+    
+    if chunk_path.exists():
+        try:
+            reader = ChunkReader(chunk_path)
+            tile_bytes = reader.get_tile(x, y)
+            if tile_bytes is not None:
+                return Response(
+                    content=tile_bytes,
+                    media_type=media_type,
+                    headers={"Cache-Control": _CACHE_CONTROL},
+                )
+        except Exception as e:
+            # Fall through to check loose tiles or 404
+            pass
+            
+    # 2. Fallback to old loose tiles (for backwards compatibility during transition)
+    tile_path = base_dir / str(z) / str(x) / f"{y}.{ext}"
     if tile_path.exists():
         return FileResponse(
             path=str(tile_path),

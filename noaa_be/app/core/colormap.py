@@ -23,6 +23,10 @@ matplotlib.use("Agg")  # non-interactive backend — must be before pyplot impor
 import matplotlib.pyplot as _plt  # noqa: F401 (triggers backend init)
 
 _log = logging.getLogger(__name__)
+from ..config import get_settings
+
+_CFG = get_settings()
+_LUT_CACHE: dict[tuple[str, str | None, int], np.ndarray] = {}
 
 
 # ---------------------------------------------------------------------------
@@ -446,6 +450,27 @@ def _apply_continuous(
     return rgba
 
 
+def _lut_for_continuous(map_type: str, product: str | None, cfg: dict, cmap: mcolors.Colormap, effective_alpha: int) -> np.ndarray:
+    levels = _CFG.TILE_LUT_LEVELS
+    key = (map_type, product, effective_alpha)
+    cached = _LUT_CACHE.get(key)
+    if cached is not None and cached.shape[0] == levels:
+        return cached
+
+    vmin: float = cfg["vmin"]
+    vmax: float = cfg["vmax"]
+    norm_mode: str = cfg.get("norm_mode", "linear")
+    norm_gamma: float = cfg.get("norm_gamma", 1.0)
+    samples = np.linspace(vmin, vmax, levels, dtype=np.float32)
+    t = np.clip((samples - vmin) / (vmax - vmin), 0.0, 1.0)
+    if norm_mode == "power":
+        t = np.power(t, norm_gamma)
+    lut = (cmap(t) * 255).astype(np.uint8)
+    lut[:, 3] = effective_alpha
+    _LUT_CACHE[key] = lut
+    return lut
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -476,7 +501,18 @@ def apply_colormap(
     elif norm_mode == "stepped":
         rgba, bin_idx = _apply_stepped(values, cfg, cmap)
     else:  # linear / power
-        rgba = _apply_continuous(values, cfg, cmap, effective_alpha)
+        if _CFG.TILE_USE_LUT:
+            lut = _lut_for_continuous(map_type, product, cfg, cmap, effective_alpha)
+            vmin = cfg["vmin"]
+            vmax = cfg["vmax"]
+            levels = lut.shape[0]
+            t = np.clip((values - vmin) / (vmax - vmin), 0.0, 1.0)
+            if cfg.get("norm_mode", "linear") == "power":
+                t = np.power(t, cfg.get("norm_gamma", 1.0))
+            idx = np.clip((t * (levels - 1)).astype(np.int32), 0, levels - 1)
+            rgba = lut[idx]
+        else:
+            rgba = _apply_continuous(values, cfg, cmap, effective_alpha)
 
     # ── 2. Alpha assignment ─────────────────────────────────────────────
     if alpha_mode == "banded_alpha":

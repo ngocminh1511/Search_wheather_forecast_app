@@ -37,6 +37,24 @@ class PipelineOrchestrator:
         self.is_running = False
         self.workers    = []
         self.active_runs: set[str] = set()
+        self.hot_fff = set(self.cfg.PRIORITY_FFF_HOT_LIST)
+
+    def _job_priority(self, map_type: str, fff: int) -> tuple[int, int]:
+        """
+        Priority order:
+          0: hot fff list (now/near terms)
+          1: 0..24h
+          2: 24..72h
+          3: >72h
+        Lower tuple value = higher priority.
+        """
+        if fff in self.hot_fff:
+            return (0, fff)
+        if fff <= 24:
+            return (1, fff)
+        if fff <= 72:
+            return (2, fff)
+        return (3, fff)
 
     async def start(self):
         if self.is_running:
@@ -97,7 +115,7 @@ class PipelineOrchestrator:
         self.active_runs.add(run_key)
 
         def _push_jobs():
-            MIN_TILES = 100  # zoom 0-5 = 1365 tiles; 100 is a safe "has work" floor
+            MIN_CHUNKS = 1
 
             from ..services.tile_generator import _MAP_PRODUCTS
             products = _MAP_PRODUCTS.get(map_type, [])
@@ -110,12 +128,12 @@ class PipelineOrchestrator:
                     stg = self.cfg.STAGING_DIR / map_type / run_id / f"{fff:03d}" / product
                     live = self.cfg.TILES_DIR   / map_type / run_id / f"{fff:03d}" / product
 
-                    n_stg  = sum(1 for _ in stg.rglob("*.png"))  if stg.exists()  else 0
-                    n_live = sum(1 for _ in live.rglob("*.png")) if live.exists() else 0
+                    n_stg = sum(1 for _ in stg.rglob("*.chunk")) if stg.exists() else 0
+                    n_live = sum(1 for _ in live.rglob("*.chunk")) if live.exists() else 0
                     n_total = n_stg + n_live
 
-                    if n_total >= MIN_TILES:
-                        log.debug("[submit] SKIP %s — %d tiles on disk", job_id, n_total)
+                    if n_total >= MIN_CHUNKS:
+                        log.debug("[submit] SKIP %s — %d chunks on disk", job_id, n_total)
                         upsert_pipeline_job(job_id, map_type, run_id, fff, product, "READY")
                         continue
 
@@ -129,8 +147,7 @@ class PipelineOrchestrator:
                         "state":    "PENDING",
                     }
                     upsert_pipeline_job(job_id, map_type, run_id, fff, product, "PENDING")
-                    # Priority = fff so f000 across all maps is processed first
-                    self.parse_queue.put_nowait((fff, job_id, job_data))
+                    self.parse_queue.put_nowait((self._job_priority(map_type, fff), job_id, job_data))
 
         if self.loop and self.loop.is_running():
             self.loop.call_soon_threadsafe(_push_jobs)

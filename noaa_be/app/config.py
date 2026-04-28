@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import json
 from functools import lru_cache
 from pathlib import Path
 
@@ -54,8 +55,51 @@ class Settings:
         self.TILE_ZOOM_LAZY_MAX: int = int(
             os.getenv("TILE_ZOOM_LAZY_MAX", "10"))
         self.TILE_WORKERS: int = int(os.getenv("TILE_WORKERS", "8"))
+        self.TILE_PROCESS_WORKERS: int = int(
+            os.getenv("TILE_PROCESS_WORKERS", str(self.TILE_WORKERS))
+        )
+        self.TILE_MIN_PROCESS_WORKERS: int = max(
+            1, int(os.getenv("TILE_MIN_PROCESS_WORKERS", "2"))
+        )
+        self.TILE_ADAPTIVE_THROTTLE: bool = os.getenv(
+            "TILE_ADAPTIVE_THROTTLE", "true"
+        ).lower() == "true"
+        self.TILE_MAX_INFLIGHT_MULTIPLIER: int = max(
+            1, int(os.getenv("TILE_MAX_INFLIGHT_MULTIPLIER", "2"))
+        )
+        self.TILE_FORMAT_DEFAULT: str = os.getenv("TILE_FORMAT_DEFAULT", "png").lower()
+        if self.TILE_FORMAT_DEFAULT not in {"png", "webp", "png8"}:
+            self.TILE_FORMAT_DEFAULT = "png"
+        self.TILE_WEBP_QUALITY: int = max(
+            1, min(100, int(os.getenv("TILE_WEBP_QUALITY", "85")))
+        )
+        self.TILE_USE_PNG8_FOR_BANDED: bool = os.getenv(
+            "TILE_USE_PNG8_FOR_BANDED", "false"
+        ).lower() == "true"
+        self.TILE_LUT_LEVELS: int = max(
+            64, min(4096, int(os.getenv("TILE_LUT_LEVELS", "1024")))
+        )
+        self.TILE_USE_LUT: bool = os.getenv(
+            "TILE_USE_LUT", "true"
+        ).lower() == "true"
+        self.TILE_PER_MAP_ZOOM_JSON: str = os.getenv("TILE_PER_MAP_ZOOM_JSON", "")
         # LRU cache for lazy z=6..10 tiles (number of PNG bytes segments)
         self.TILE_CACHE_MB: int = int(os.getenv("TILE_CACHE_MB", "2048"))
+        self.TILE_SKIP_EXISTING_CHUNKS: bool = os.getenv(
+            "TILE_SKIP_EXISTING_CHUNKS", "true"
+        ).lower() == "true"
+        self.TILE_PNG_COMPRESS_LEVEL: int = max(
+            0, min(9, int(os.getenv("TILE_PNG_COMPRESS_LEVEL", "1")))
+        )
+        self.TILE_PNG_OPTIMIZE: bool = os.getenv(
+            "TILE_PNG_OPTIMIZE", "false"
+        ).lower() == "true"
+        self.WIND_FIELD_COMPRESS_LEVEL: int = max(
+            0, min(9, int(os.getenv("WIND_FIELD_COMPRESS_LEVEL", "3")))
+        )
+        self.WRITE_DEBUG_PNGS: bool = os.getenv(
+            "WRITE_DEBUG_PNGS", "false"
+        ).lower() == "true"
 
         # ── Data download ──────────────────────────────────────────────────
         self.RPM_LIMIT: int = int(os.getenv("NOAA_RPM_LIMIT", "100"))
@@ -73,11 +117,18 @@ class Settings:
         self.MAX_BUILD_WORKERS: int = int(os.getenv("MAX_BUILD_WORKERS", "6"))
         self.MAX_CUT_WORKERS: int = int(os.getenv("MAX_CUT_WORKERS", "8"))
         self.MAX_WRITE_WORKERS: int = int(os.getenv("MAX_WRITE_WORKERS", "8"))
+        self.MAX_PARALLEL_RUNS: int = max(
+            1, int(os.getenv("MAX_PARALLEL_RUNS", "2"))
+        )
+        self.MAX_PARALLEL_MAP_TYPES: int = max(
+            1, int(os.getenv("MAX_PARALLEL_MAP_TYPES", "2"))
+        )
 
         # ── Resource Guards ────────────────────────────────────────────────
         self.MAX_RAM_PERCENT: float = float(os.getenv("MAX_RAM_PERCENT", "85.0"))
         self.MAX_CPU_PERCENT: float = float(os.getenv("MAX_CPU_PERCENT", "95.0"))
         self.MIN_DISK_FREE_GB: float = float(os.getenv("MIN_DISK_FREE_GB", "5.0"))
+        self.MAX_IOWAIT_PERCENT: float = float(os.getenv("MAX_IOWAIT_PERCENT", "30.0"))
 
         # ── Server ─────────────────────────────────────────────────────────
         self.HOST: str = os.getenv("HOST", "0.0.0.0")
@@ -124,6 +175,25 @@ class Settings:
 
         # ── Map types that are ARCHIVE (past 24h) vs FUTURE (next 24h) ──
         self.ARCHIVE_MAP_TYPES: set[str] = {"cloud_total", "cloud_layered"}
+
+        self.PRIORITY_FFF_HOT_LIST: list[int] = [
+            int(v) for v in os.getenv("PRIORITY_FFF_HOT_LIST", "0,3,6,12,24,48,72").split(",")
+            if v.strip().isdigit()
+        ]
+        try:
+            parsed_zoom = json.loads(self.TILE_PER_MAP_ZOOM_JSON) if self.TILE_PER_MAP_ZOOM_JSON else {}
+        except Exception:
+            parsed_zoom = {}
+        self.TILE_PER_MAP_ZOOM: dict[str, int] = {
+            "rain_advanced": 8,
+            "rain_basic": 8,
+            "wind_surface": 8,
+            "temperature_feels_like": 7,
+            "cloud_total": 7,
+            "cloud_layered": 7,
+            "snow_depth": 7,
+            **{str(k): int(v) for k, v in parsed_zoom.items() if isinstance(v, int)},
+        }
 
         # Ensure required directories exist
         for d in (

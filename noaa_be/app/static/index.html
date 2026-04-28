@@ -436,9 +436,14 @@
         <div id="view-storage" class="view-panel">
             <div class="view-header">
                 <h2 class="view-title">Storage & Database <span class="badge-tag tag-real">Real Data</span></h2>
-                <button class="btn btn-outline" style="width: auto; padding: 8px 16px; font-size: 13px;" onclick="loadStorageStats(true)">
-                    <i class="ph ph-arrows-clockwise"></i> Refresh
-                </button>
+                <div style="display: flex; gap: 12px;">
+                    <button class="btn btn-outline" style="width: auto; padding: 8px 16px; font-size: 13px; color: var(--accent-red); border-color: rgba(239, 68, 68, 0.3);" onclick="deleteAllStorageData()">
+                        <i class="ph ph-trash"></i> Delete All Data
+                    </button>
+                    <button class="btn btn-outline" style="width: auto; padding: 8px 16px; font-size: 13px;" onclick="loadStorageStats(true)">
+                        <i class="ph ph-arrows-clockwise"></i> Refresh
+                    </button>
+                </div>
             </div>
             
             <div class="stat-grid" style="grid-template-columns: 1fr; gap: 24px;" id="storageContainer">
@@ -888,6 +893,41 @@
                     btn.disabled = false;
                     btn.style.opacity = '1';
                 }
+            }
+        }
+        
+        async function deleteAllStorageData() {
+            if (!confirm(`DANGER: Are you absolutely sure you want to delete ALL data for ALL map types? This will wipe the entire database and tiles. This action CANNOT BE UNDONE.`)) return;
+            
+            try {
+                const data = await apiCall('/api/v1/admin/storage/stats');
+                if (!data || !data.map_types) throw new Error("Failed to get map types");
+                
+                const mapTypes = Object.keys(data.map_types);
+                if (mapTypes.length === 0) {
+                    showToast('No data to delete.', 'info');
+                    return;
+                }
+
+                showToast(`Starting global deletion for ${mapTypes.length} map types...`, 'info');
+                
+                const res = await apiCall('/api/v1/admin/bulk-delete', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        map_types: mapTypes,
+                        run_ids: null
+                    })
+                });
+                
+                if (res && res.job_id) {
+                    showToast('Global delete job started!', 'success');
+                    pollDeleteStatus(res.job_id, 'ALL MAPS', 'ALL RUNS', null, null);
+                } else {
+                    showToast('Failed to start bulk delete job.', 'error');
+                }
+            } catch(e) {
+                showToast(`Global delete failed: ${e}`, 'error');
             }
         }
         

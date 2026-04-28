@@ -45,6 +45,17 @@ def check_resources(stage: str) -> bool:
                 if stage in ("build", "cut"):
                     log.warning(f"Resource Guard: High CPU usage ({cpu_percent}% > {cfg.MAX_CPU_PERCENT}%). Throttling {stage}.")
                     return False
+            iowait = 0.0
+            try:
+                iowait = float(getattr(psutil.cpu_times_percent(interval=0.0), "iowait", 0.0))
+            except Exception:
+                iowait = 0.0
+            if iowait > cfg.MAX_IOWAIT_PERCENT and stage in ("build", "cut", "publish"):
+                log.warning(
+                    "Resource Guard: High IO wait (%.1f%% > %.1f%%). Throttling %s.",
+                    iowait, cfg.MAX_IOWAIT_PERCENT, stage
+                )
+                return False
         except Exception as e:
             log.error(f"Error checking CPU/RAM: {e}")
             
@@ -53,7 +64,7 @@ def check_resources(stage: str) -> bool:
 def get_resource_metrics() -> dict:
     """Return current resource usage metrics for monitoring."""
     cfg = get_settings()
-    metrics = {"disk_free_gb": 0.0, "ram_percent": 0.0, "cpu_percent": 0.0}
+    metrics = {"disk_free_gb": 0.0, "ram_percent": 0.0, "cpu_percent": 0.0, "iowait_percent": 0.0}
     
     try:
         disk_usage = shutil.disk_usage(str(cfg.BASE_DIR))
@@ -65,6 +76,7 @@ def get_resource_metrics() -> dict:
         try:
             metrics["ram_percent"] = psutil.virtual_memory().percent
             metrics["cpu_percent"] = psutil.cpu_percent()
+            metrics["iowait_percent"] = float(getattr(psutil.cpu_times_percent(interval=0.0), "iowait", 0.0))
         except:
             pass
             

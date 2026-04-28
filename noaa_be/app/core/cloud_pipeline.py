@@ -23,7 +23,9 @@ import numpy as np
 from ..config import get_settings
 from .cloud_builder import build_total_cloud_cover
 from .cloud_reader import read_cloud_fields
-from .tile_cutter import cut_and_save
+from .tile_cutter import _warp_scalar_to_mercator, TILE_SIZE
+from .metatile_processor import process_all_metatiles
+from rasterio.warp import Resampling
 
 _log = logging.getLogger(__name__)
 
@@ -59,7 +61,8 @@ def generate_cloud_frame(
     """
     cfg = get_settings()
     z_max = zoom_max if zoom_max is not None else cfg.TILE_ZOOM_EAGER_MAX
-    w = workers if workers is not None else cfg.TILE_WORKERS
+    z_max = min(z_max, cfg.TILE_PER_MAP_ZOOM.get("cloud_total", z_max))
+    w = workers if workers is not None else cfg.TILE_PROCESS_WORKERS
 
     start_ts = time.perf_counter()
 
@@ -92,35 +95,66 @@ def generate_cloud_frame(
         result.values.shape,
     )
 
-    # ── 3. Cut tiles ─────────────────────────────────────────────────────
-    summary = cut_and_save(
-        scalar=result.values,
-        lat=result.lat,
-        lon=result.lon,
-        cmap_type="cloud_total",
-        cmap_product=None,
-        run_id=run_id,
-        fff=fff,
-        product=_CLOUD_PRODUCT,
-        output_dir=output_dir,
-        zoom_min=zoom_min,
-        zoom_max=z_max,
-        workers=w,
-        skip_existing=skip_existing,
+    # ── 3. Warp and Cut tiles ────────────────────────────────────────────
+    canvas_size = min((2 ** z_max) * TILE_SIZE, 8192)
+    merc, px_m = _warp_scalar_to_mercator(
+        result.values, result.lat, result.lon, canvas_size,
+        resampling=Resampling.bilinear,
     )
+    
+    staging_dir = cfg.STAGING_DIR / "cloud_total" / run_id / "canvases"
+    staging_dir.mkdir(parents=True, exist_ok=True)
+    npy_path = staging_dir / f"cloud_{fff:03d}.npy"
+    np.save(str(npy_path), merc)
+    
+    try:
+        summary = process_all_metatiles(
+            npy_path=str(npy_path),
+            px_per_meter=px_m,
+            cmap_type="cloud_total",
+            cmap_product=None,
+            output_dir=output_dir / f"{fff:03d}" / _CLOUD_PRODUCT,
+            zoom_min=zoom_min,
+            zoom_max=z_max,
+            workers=w
+        )
+    
+        # Write manifest
+        import json
+        manifest = {
+            "ready": True,
+            "product": _CLOUD_PRODUCT,
+            "total": summary["total"],
+            "saved": summary["saved"],
+            "empty_skipped": summary["empty_skipped"],
+            "errors": summary["errors"],
+            "chunks_written": summary["chunks_written"],
+            "total_size_bytes": summary["bytes"],
+            "format": "chunk",
+            "tile_format": cfg.TILE_FORMAT_DEFAULT,
+            "tile_ext": "webp" if cfg.TILE_FORMAT_DEFAULT == "webp" else "png",
+            "timestamp": time.time()
+        }
+        (output_dir / f"{fff:03d}" / _CLOUD_PRODUCT / "manifest.json").write_text(json.dumps(manifest, indent=2))
 
-    elapsed = time.perf_counter() - start_ts
-    summary["duration_s"] = round(elapsed, 3)
-    summary["cloud_source"] = result.source
-    summary["nan_pct"] = round(result.nan_pct, 2)
+        elapsed = time.perf_counter() - start_ts
+        summary["duration_s"] = round(elapsed, 3)
+        summary["cloud_source"] = result.source
+        summary["nan_pct"] = round(result.nan_pct, 2)
 
-    _log.info(
-        "cloud_pipeline: done  run=%s fff=%03d source=%s  "
-        "saved=%d skipped=%d errors=%d  %.3fs",
-        run_id, fff, result.source,
-        summary.get("saved", 0),
-        summary.get("skipped", 0),
-        summary.get("errors", 0),
-        elapsed,
-    )
+        _log.info(
+            "cloud_pipeline: done  run=%s fff=%03d source=%s  "
+            "saved=%d skipped=%d errors=%d  %.3fs",
+            run_id, fff, result.source,
+            summary.get("saved", 0),
+            summary.get("skipped", 0),
+            summary.get("errors", 0),
+            elapsed,
+        )
+    finally:
+        try:
+            npy_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+
     return summary

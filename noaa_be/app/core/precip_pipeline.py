@@ -38,9 +38,9 @@ from .precip_reader import read_precip_fields
 from .precip_classifier import classify_on_mercator
 from ..core.tile_cutter import (
     _warp_scalar_to_mercator,
-    cut_and_save_adv_precip,
     TILE_SIZE,
 )
+from ..core.metatile_processor import process_all_adv_precip_metatiles
 from .colormap import get_precip_metadata_json
 from rasterio.warp import Resampling
 
@@ -68,7 +68,8 @@ def generate_precip_frame(
     """
     cfg = get_settings()
     z_max = zoom_max if zoom_max is not None else cfg.TILE_ZOOM_EAGER_MAX
-    w = workers if workers is not None else cfg.TILE_WORKERS
+    z_max = min(z_max, cfg.TILE_PER_MAP_ZOOM.get("rain_advanced", z_max))
+    w = workers if workers is not None else cfg.TILE_PROCESS_WORKERS
 
     grib_path = (
         data_dir / "rain_advanced" / run_id /
@@ -136,68 +137,99 @@ def generate_precip_frame(
         resampling=Resampling.bilinear,
     )
 
-    # ── Step 4: Classify on Mercator canvas ────────────────────────────────────
-    # min_patch_pixels scales with canvas (larger canvas = larger GFS cells in px)
-    min_patch = max(20, canvas_size // 200)
-    combined_index_merc = classify_on_mercator(
-        merc_prate, merc_crain, merc_csnow, merc_cicep, merc_cfrzr, merc_cpofp,
-        min_patch_pixels=min_patch,
-    )
-
-    # ── Step 5: Cut base tiles (SSAA) ──────────────────────────────────────────
-    _log.info("precip_pipeline: cutting base tiles (SSAA, precip_base) ...")
-    base_summary = cut_and_save_adv_precip(
-        merc_prate=merc_prate,
-        merc_crain=merc_crain,
-        merc_csnow=merc_csnow,
-        merc_cicep=merc_cicep,
-        merc_cfrzr=merc_cfrzr,
-        merc_cpofp=merc_cpofp,
-        px_per_meter=px_m,
-        run_id=run_id,
-        fff=fff,
-        output_dir=output_dir,
-        zoom_min=zoom_min,
-        zoom_max=z_max,
-        workers=w,
-        skip_existing=skip_existing,
-    )
-
-    # ── Step 6: Generate Metadata JSON ─────────────────────────────────────────
-    meta_dir = output_dir / f"{fff:03d}" / "precip_base_meta"
-    meta_dir.mkdir(parents=True, exist_ok=True)
-    meta_path = meta_dir / "meta.json"
-    
-    meta_data = get_precip_metadata_json()
-    meta_path.write_text(json.dumps(meta_data, indent=2))
-    _log.info("precip_pipeline: wrote metadata to %s", meta_path)
-
-
-
-    # ── Step 7: Debug PNGs ────────────────────────────────────────────────────
-    try:
-        _save_debug_pngs_adv(
-            combined_index_merc=combined_index_merc,
-            merc_prate=merc_prate,
-            merc_crain=merc_crain,
-            merc_csnow=merc_csnow,
-            merc_cicep=merc_cicep,
-            merc_cfrzr=merc_cfrzr,
-            output_dir=output_dir,
-            fff=fff,
+    combined_index_merc = None
+    if cfg.WRITE_DEBUG_PNGS:
+        # Only build this full-frame debug artifact when explicitly requested.
+        min_patch = max(20, canvas_size // 200)
+        combined_index_merc = classify_on_mercator(
+            merc_prate, merc_crain, merc_csnow, merc_cicep, merc_cfrzr, merc_cpofp,
+            min_patch_pixels=min_patch,
         )
-    except Exception as dbg_exc:
-        _log.warning("precip_pipeline: debug PNGs failed (non-fatal): %s", dbg_exc)
 
-    elapsed = time.perf_counter() - t0
-    _log.info(
-        "precip_pipeline %s/f%03d DONE: base(saved=%d skipped=%d err=%d) | %.3fs",
-        run_id, fff,
-        base_summary.get("saved", 0),
-        base_summary.get("skipped", 0),
-        base_summary.get("errors", 0),
-        elapsed,
-    )
+    # Save to npy for IPC
+    staging_dir = cfg.STAGING_DIR / "rain_advanced" / run_id / "canvases"
+    staging_dir.mkdir(parents=True, exist_ok=True)
+    
+    npy_paths = {}
+    for name, arr in [("prate", merc_prate), ("crain", merc_crain), ("csnow", merc_csnow), 
+                      ("cicep", merc_cicep), ("cfrzr", merc_cfrzr), ("cpofp", merc_cpofp)]:
+        path = staging_dir / f"precip_{name}_{fff:03d}.npy"
+        np.save(str(path), arr)
+        npy_paths[name] = str(path)
+
+    # ── Step 5: Cut base tiles (SSAA) using metatile processor ───────────────
+    _log.info("precip_pipeline: processing adv precip metatiles (precip_base) ...")
+    try:
+        base_summary = process_all_adv_precip_metatiles(
+            npy_paths=npy_paths,
+            px_per_meter=px_m,
+            output_dir=output_dir / f"{fff:03d}" / "precip_base",
+            zoom_min=zoom_min,
+            zoom_max=z_max,
+            workers=w
+        )
+        
+        # Write manifest
+        import json
+        manifest = {
+            "ready": True,
+            "product": "precip_base",
+            "total": base_summary["total"],
+            "saved": base_summary["saved"],
+            "empty_skipped": base_summary["empty_skipped"],
+            "errors": base_summary["errors"],
+            "chunks_written": base_summary["chunks_written"],
+            "total_size_bytes": base_summary["bytes"],
+            "format": "chunk",
+            "tile_format": cfg.TILE_FORMAT_DEFAULT,
+            "tile_ext": "webp" if cfg.TILE_FORMAT_DEFAULT == "webp" else "png",
+            "timestamp": time.time()
+        }
+        (output_dir / f"{fff:03d}" / "precip_base" / "manifest.json").write_text(json.dumps(manifest, indent=2))
+
+        # ── Step 6: Generate Metadata JSON ─────────────────────────────────────────
+        meta_dir = output_dir / f"{fff:03d}" / "precip_base_meta"
+        meta_dir.mkdir(parents=True, exist_ok=True)
+        meta_path = meta_dir / "meta.json"
+        
+        meta_data = get_precip_metadata_json()
+        meta_path.write_text(json.dumps(meta_data, indent=2))
+        _log.info("precip_pipeline: wrote metadata to %s", meta_path)
+
+
+
+        # ── Step 7: Debug PNGs ────────────────────────────────────────────────────
+        if cfg.WRITE_DEBUG_PNGS and combined_index_merc is not None:
+            try:
+                _save_debug_pngs_adv(
+                    combined_index_merc=combined_index_merc,
+                    merc_prate=merc_prate,
+                    merc_crain=merc_crain,
+                    merc_csnow=merc_csnow,
+                    merc_cicep=merc_cicep,
+                    merc_cfrzr=merc_cfrzr,
+                    output_dir=output_dir,
+                    fff=fff,
+                )
+            except Exception as dbg_exc:
+                _log.warning("precip_pipeline: debug PNGs failed (non-fatal): %s", dbg_exc)
+
+        elapsed = time.perf_counter() - t0
+        _log.info(
+            "precip_pipeline %s/f%03d DONE: base(saved=%d skipped=%d err=%d) | %.3fs",
+            run_id, fff,
+            base_summary.get("saved", 0),
+            base_summary.get("skipped", 0),
+            base_summary.get("errors", 0),
+            elapsed,
+        )
+    finally:
+        for path in npy_paths.values():
+            try:
+                Path(path).unlink(missing_ok=True)
+            except Exception:
+                pass
+
     return {
         "base":     base_summary,
         "duration_s": round(elapsed, 3),

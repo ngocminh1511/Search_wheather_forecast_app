@@ -9,7 +9,8 @@ from rasterio.warp import Resampling
 
 from ..config import get_settings
 from .grib_reader import read_multi_fields
-from ..core.tile_cutter import _warp_scalar_to_mercator, cut_and_save_wind, TILE_SIZE
+from ..core.tile_cutter import _warp_scalar_to_mercator, TILE_SIZE
+from ..core.metatile_processor import process_all_wind_metatiles
 
 _log = logging.getLogger(__name__)
 
@@ -29,7 +30,8 @@ def generate_wind_frame(
     """
     cfg = get_settings()
     z_max = zoom_max if zoom_max is not None else cfg.TILE_ZOOM_EAGER_MAX
-    w = workers if workers is not None else cfg.TILE_WORKERS
+    z_max = min(z_max, cfg.TILE_PER_MAP_ZOOM.get("wind_surface", z_max))
+    w = workers if workers is not None else cfg.TILE_PROCESS_WORKERS
 
     grib_path = (
         data_dir / "wind_surface" / run_id /
@@ -82,35 +84,72 @@ def generate_wind_frame(
     # 3. Compute speed
     merc_speed = np.sqrt(merc_u**2 + merc_v**2)
 
-    # 4. Cut and save
-    _log.info("wind_pipeline: cutting wind tiles (base PNG + field BIN) ...")
-    base_summary = cut_and_save_wind(
-        merc_u=merc_u,
-        merc_v=merc_v,
-        merc_speed=merc_speed,
-        px_per_meter=px_m,
-        run_id=run_id,
-        fff=fff,
-        output_dir=output_dir,
-        zoom_min=zoom_min,
-        zoom_max=z_max,
-        workers=w,
-        skip_existing=skip_existing,
-    )
+    # Save to npy for IPC
+    staging_dir = cfg.STAGING_DIR / "wind_surface" / run_id / "canvases"
+    staging_dir.mkdir(parents=True, exist_ok=True)
+    
+    npy_u = staging_dir / f"wind_u_{fff:03d}.npy"
+    npy_v = staging_dir / f"wind_v_{fff:03d}.npy"
+    npy_speed = staging_dir / f"wind_speed_{fff:03d}.npy"
+    
+    np.save(str(npy_u), merc_u)
+    np.save(str(npy_v), merc_v)
+    np.save(str(npy_speed), merc_speed)
 
-    elapsed = time.perf_counter() - t0
-    _log.info(
-        "wind_pipeline %s/f%03d DONE: saved=%d skipped=%d err=%d | %.3fs",
-        run_id, fff,
-        base_summary.get("saved", 0),
-        base_summary.get("skipped", 0),
-        base_summary.get("errors", 0),
-        elapsed,
-    )
+    # 4. Cut and save using metatile processor
+    _log.info("wind_pipeline: processing wind metatiles (base PNG + field BIN) ...")
+    try:
+        summary = process_all_wind_metatiles(
+            npy_u_path=str(npy_u),
+            npy_v_path=str(npy_v),
+            npy_speed_path=str(npy_speed),
+            px_per_meter=px_m,
+            output_dir=output_dir / f"{fff:03d}",
+            zoom_min=zoom_min,
+            zoom_max=z_max,
+            workers=w
+        )
+        
+        # Write manifests
+        import json
+        for prod in ["wind_base", "wind_field"]:
+            manifest = {
+                "ready": True,
+                "product": prod,
+                "total": summary["total"],
+                "saved": summary["saved"],
+                "empty_skipped": summary["empty_skipped"],
+                "errors": summary["errors"],
+                "chunks_written": summary["chunks_written"] // 2, # Halved because it counts both
+                "total_size_bytes": summary["bytes"] // 2, # Approximation
+                "format": "chunk",
+                "tile_format": cfg.TILE_FORMAT_DEFAULT if prod == "wind_base" else "bin",
+                "tile_ext": ("webp" if cfg.TILE_FORMAT_DEFAULT == "webp" else "png") if prod == "wind_base" else "bin",
+                "timestamp": time.time()
+            }
+            (output_dir / f"{fff:03d}" / prod / "manifest.json").write_text(json.dumps(manifest, indent=2))
+
+        elapsed = time.perf_counter() - t0
+        _log.info(
+            "wind_pipeline %s/f%03d DONE: chunks_written=%d skipped=%d err=%d | %.3fs",
+            run_id, fff,
+            summary.get("chunks_written", 0),
+            summary.get("empty_skipped", 0),
+            summary.get("errors", 0),
+            elapsed,
+        )
+    finally:
+        try:
+            npy_u.unlink(missing_ok=True)
+            npy_v.unlink(missing_ok=True)
+            npy_speed.unlink(missing_ok=True)
+        except Exception:
+            pass
+
     return {
-        "saved": base_summary.get("saved", 0) * 2, # x2 because it saves both PNG and BIN
-        "skipped": base_summary.get("skipped", 0) * 2,
-        "errors": base_summary.get("errors", 0) * 2,
-        "base": base_summary,
+        "saved": summary.get("saved", 0),
+        "empty_skipped": summary.get("empty_skipped", 0),
+        "errors": summary.get("errors", 0),
+        "chunks_written": summary.get("chunks_written", 0),
         "duration_s": round(elapsed, 3),
     }
