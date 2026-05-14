@@ -1733,6 +1733,7 @@
                                         <th style="padding: 8px 4px; font-weight: 500;">Data (GRIB)</th>
                                         <th style="padding: 8px 4px; font-weight: 500;">Tiles / Bin</th>
                                         <th style="padding: 8px 4px; font-weight: 500;">Staging</th>
+                                        <th style="padding: 8px 4px; font-weight: 500;">JSON grids</th>
                                         <th style="padding: 8px 4px; font-weight: 500; text-align: right;">Action</th>
                                     </tr>
                                 </thead>
@@ -1743,7 +1744,7 @@
                     if (sortedRuns.length === 0) {
                         html += `
                                     <tr>
-                                        <td colspan="5" style="padding: 24px 4px; text-align: center; color: var(--text-muted); font-style: italic;">
+                                        <td colspan="6" style="padding: 24px 4px; text-align: center; color: var(--text-muted); font-style: italic;">
                                             No data downloaded for this map yet.
                                         </td>
                                     </tr>
@@ -1751,13 +1752,19 @@
                     } else {
                         for (const runId of sortedRuns) {
                             const run = mtData.runs[runId];
+                            const jsonBytes = run.json_bytes || 0;
+                            const jsonFiles = run.json_files || 0;
                             html += `
                                         <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
                                             <td style="padding: 12px 4px; font-family: 'JetBrains Mono', monospace; font-size: 13px;">${runId}</td>
                                             <td style="padding: 12px 4px;">${formatBytes(run.data_bytes)} <span style="color:var(--text-muted); font-size: 12px;">(${run.data_files} f)</span></td>
                                             <td style="padding: 12px 4px;">${formatBytes(run.tiles_bytes)} <span style="color:var(--text-muted); font-size: 12px;">(${run.tiles_files} f)</span></td>
                                             <td style="padding: 12px 4px; color: var(--accent-green);">${formatBytes(run.staging_bytes)} <span style="color:var(--text-muted); font-size: 12px;">(${run.staging_files} f)</span></td>
-                                            <td style="padding: 12px 4px; text-align: right;">
+                                            <td style="padding: 12px 4px; color: var(--accent-blue);">${formatBytes(jsonBytes)} <span style="color:var(--text-muted); font-size: 12px;">(${jsonFiles} f)</span></td>
+                                            <td style="padding: 12px 4px; text-align: right; white-space: nowrap;">
+                                                <button class="btn btn-outline" id="btn-finalize-${mapType}-${runId}" style="width: auto; padding: 4px 10px; font-size: 12px; color: var(--accent-blue); border-color: rgba(59, 130, 246, 0.2); margin-right: 6px;" onclick="finalizeStorageRun('${escapeAttr(mapType)}', '${escapeAttr(runId)}')" title="Write _current.json pointer on Bunny so mobile sees this run">
+                                                    <i class="ph ph-flag-checkered"></i> Finalize
+                                                </button>
                                                 <button class="btn btn-outline" id="btn-delete-${mapType}-${runId}" style="width: auto; padding: 4px 10px; font-size: 12px; color: var(--accent-red); border-color: rgba(239, 68, 68, 0.2);" onclick="deleteStorageRun('${escapeAttr(mapType)}', '${escapeAttr(runId)}')">
                                                     <i class="ph ph-trash"></i> Clean
                                                 </button>
@@ -1773,6 +1780,33 @@
                 container.innerHTML = html;
             } catch(e) {
                 container.innerHTML = `<div style="color: var(--accent-red); padding: 24px;">Failed to load storage: ${e}</div>`;
+            }
+        }
+
+        async function finalizeStorageRun(mapType, runId) {
+            if (!confirm(`Write Bunny pointer (_current.json) for ${mapType} → ${runId}?\n\nMobile clients will switch to this run after this completes. Use when tiles are pushed but pipeline didn't reach Finalize stage (e.g. crashed, manual partial run).`)) return;
+
+            const btnId = `btn-finalize-${mapType}-${runId}`;
+            const btn = document.getElementById(btnId);
+            const originalHtml = btn ? btn.innerHTML : '';
+            if (btn) {
+                btn.innerHTML = '<i class="ph ph-spinner ph-spin"></i> Finalizing...';
+                btn.disabled = true;
+                btn.style.opacity = '0.7';
+            }
+
+            try {
+                const res = await apiCall(`/api/v1/admin/finalize-bunny/${mapType}/${runId}?cleanup_local=true`, {method: 'POST'});
+                if (res && res.pointer_ok) {
+                    showToast(`Pointer set for ${mapType} → ${runId} (${res.frame_count} frames, local ${res.local_cleaned ? 'cleaned' : 'kept'})`, 'success');
+                    setTimeout(() => loadStorage(), 800);
+                } else {
+                    showToast(`Finalize did not switch pointer: ${res ? (res.reason || 'unknown') : 'no response'}`, 'error');
+                    if (btn) { btn.innerHTML = originalHtml; btn.disabled = false; btn.style.opacity = '1'; }
+                }
+            } catch(e) {
+                showToast(`Finalize failed: ${e}`, 'error');
+                if (btn) { btn.innerHTML = originalHtml; btn.disabled = false; btn.style.opacity = '1'; }
             }
         }
 

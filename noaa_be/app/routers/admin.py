@@ -945,14 +945,16 @@ def _compute_storage_stats():
                         if (mt_path / run_id).is_dir():
                             tasks.append(("staging", mt, run_id, mt_path / run_id))
 
+        # JSON grids: structure is {map_type}/{run_id}/{fff:03d}/{product}.json
+        # — scan run_id dirs the same way TILES_DIR and STAGING_DIR are scanned.
         if cfg.JSON_GRIDS_DIR.exists():
             for mt in os.listdir(cfg.JSON_GRIDS_DIR):
                 mt_path = cfg.JSON_GRIDS_DIR / mt
                 if mt_path.is_dir():
-                    for fname in os.listdir(mt_path):
-                        if fname.endswith(".json"):
-                            run_id = fname[:-5]
-                            tasks.append(("json", mt, run_id, mt_path / fname))
+                    for run_id in os.listdir(mt_path):
+                        run_path = mt_path / run_id
+                        if run_path.is_dir():
+                            tasks.append(("json", mt, run_id, run_path))
 
         total_tasks = len(tasks)
         processed_tasks = 0
@@ -981,10 +983,10 @@ def _compute_storage_stats():
                 stats[mt]["total_bytes"] += size
                 total_bytes_all += size
             elif t_type == "json":
-                size = os.path.getsize(path)
+                size, count = get_size(path)
                 ensure_run(mt, run_id)
                 stats[mt]["runs"][run_id]["json_bytes"] = size
-                stats[mt]["runs"][run_id]["json_files"] = 1
+                stats[mt]["runs"][run_id]["json_files"] = count
                 stats[mt]["total_bytes"] += size
                 total_bytes_all += size
             
