@@ -9,9 +9,12 @@ log = logging.getLogger(__name__)
 def get_db_connection() -> sqlite3.Connection:
     cfg = get_settings()
     # connect to the shared sqlite DB
-    conn = sqlite3.connect(cfg.SHARED_DB_PATH, timeout=10.0)
-    # WAL mode for better concurrency between Pipeline writer and API reader
+    conn = sqlite3.connect(cfg.SHARED_DB_PATH, timeout=30.0)
+    # WAL mode for better concurrency between Pipeline writer and API reader.
+    # busy_timeout (ms) widens the window before SQLITE_BUSY is raised so that
+    # scheduler + worker writes don't fight each other under load.
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=30000")
     return conn
 
 def init_db() -> None:
@@ -126,6 +129,40 @@ def init_db() -> None:
             )
         ''')
 
+        # ── System settings (runtime-toggleable knobs persisted across restarts) ──
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS system_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+        ''')
+
+        conn.commit()
+
+
+# --- System settings ---
+
+def get_setting(key: str, default: Any = None) -> Any:
+    """Read a system_settings value (JSON-decoded). Returns default if missing."""
+    with get_db_connection() as conn:
+        cursor = conn.execute('SELECT value FROM system_settings WHERE key = ?', (key,))
+        row = cursor.fetchone()
+        if not row:
+            return default
+        try:
+            return json.loads(row[0])
+        except (ValueError, TypeError):
+            return row[0]
+
+
+def set_setting(key: str, value: Any) -> None:
+    """Persist a system_settings value (JSON-encoded)."""
+    val_str = json.dumps(value)
+    with get_db_connection() as conn:
+        conn.execute('''
+            INSERT INTO system_settings (key, value) VALUES (?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+        ''', (key, val_str))
         conn.commit()
 
 

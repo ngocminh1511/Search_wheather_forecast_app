@@ -6,7 +6,11 @@ from pathlib import Path
 
 from app.config import get_settings
 from app.routers import admin
-from app.services.scheduler_service import start_scheduler, stop_scheduler
+from app.services.scheduler_service import (
+    reset_zombie_jobs,
+    start_scheduler,
+    stop_scheduler,
+)
 
 import logging
 from app.services.log_buffer import install_handler as _install_log_buffer
@@ -29,16 +33,33 @@ def _warmup_eccodes() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _warmup_eccodes()
-    
+
+    cfg_l = get_settings()
+    if not cfg_l.ADMIN_API_TOKEN:
+        logging.warning(
+            "ADMIN_API_TOKEN is empty — admin endpoints are UNAUTHENTICATED. "
+            "Set ADMIN_API_TOKEN env for any non-localhost deployment."
+        )
+    if "*" in cfg_l.CORS_ORIGINS:
+        logging.warning(
+            "CORS_ORIGINS contains '*' — wildcard origin allowed. "
+            "Set CORS_ORIGINS env to a comma-separated allowlist."
+        )
+
     from app.services.pipeline_orchestrator import get_orchestrator
     orchestrator = get_orchestrator()
     await orchestrator.start()
-    
+
+    # Wipe any "running" job status left over from a previously-crashed
+    # process, otherwise the per-job stale-lock guard silently no-ops every
+    # new trigger for up to 2h.
+    reset_zombie_jobs()
+
     # Pipeline Service handles all heavy background jobs
     start_scheduler()
     yield
     stop_scheduler()
-    
+
     await orchestrator.stop()
 
 cfg = get_settings()

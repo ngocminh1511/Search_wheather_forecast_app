@@ -37,7 +37,17 @@ class PipelineOrchestrator:
         self.is_running = False
         self.workers    = []
         self.active_runs: set[str] = set()
-        self.published_runs: set[str] = set()  # Tracks runs already queued for publish
+        # run_key → timestamp (monotonic seconds). Acts as a short-lived
+        # de-dupe so we don't queue the same publish twice in quick succession,
+        # but auto-expires so a publish that ultimately failed can be retried
+        # the next cycle. TTL chosen larger than the longest publish (~minutes)
+        # but well under one NOAA cycle (6h) so a stuck entry can self-heal.
+        self.published_runs: dict[str, float] = {}
+        self._PUBLISHED_TTL_S: float = 4 * 3600.0
+        # Tracks runs currently queued or in-flight for publish, so the
+        # completion check doesn't enqueue duplicates while a publish is
+        # waiting in publish_queue or running in _publish_worker.
+        self.publishing_runs: set[str] = set()
         self.hot_fff = set(self.cfg.PRIORITY_FFF_HOT_LIST)
 
         # Per-(map_type, run_id) push metrics tracker for reporting.
@@ -497,28 +507,37 @@ class PipelineOrchestrator:
     # ------------------------------------------------------------------
 
     async def _publish_worker(self):
+        import time as _time
         while self.is_running:
             try:
                 prio, j_id, run_info = await self.publish_queue.get()
             except Exception:
                 continue
+            map_type = run_info["map_type"]
+            run_id   = run_info["run_id"]
+            run_key  = f"{map_type}_{run_id}"
             try:
-                map_type = run_info["map_type"]
-                run_id   = run_info["run_id"]
-                run_key  = f"{map_type}_{run_id}"
                 log.info("Publishing %s/%s to LIVE", map_type, run_id)
 
                 from .pipeline_tasks import publish_staging_to_live
                 publish_staging_to_live(map_type, run_id)
 
+                # Mark published ONLY after success — keeps a TTL so the same
+                # run isn't re-queued in quick succession, but a failed run
+                # (not marked here) is naturally retryable on the next cycle.
+                self.published_runs[run_key] = _time.monotonic()
                 self.active_runs.discard(run_key)
-                # Keep published_runs entry — prevents re-queuing if _check_run_completion
-                # is called again for the same run after publish completes.
             except Exception as e:
-                log.error("Publish failed for %s/%s: %s", run_info["map_type"], run_info["run_id"], e)
-                # On failure, remove from published_runs so it can be retried
-                self.published_runs.discard(f"{run_info['map_type']}_{run_info['run_id']}")
+                log.error(
+                    "Publish failed for %s/%s: %s — staging left in place for retry",
+                    map_type, run_id, e,
+                )
+                # Ensure dedupe entry is cleared so the next completion check
+                # can re-queue this run.
+                self.published_runs.pop(run_key, None)
             finally:
+                # Always release the in-flight guard so a retry path is open.
+                self.publishing_runs.discard(run_key)
                 self.publish_queue.task_done()
 
     # ------------------------------------------------------------------
@@ -527,11 +546,21 @@ class PipelineOrchestrator:
 
     async def _check_run_completion(self, map_type: str, run_id: str):
         """Push run to publish queue ONCE when all its jobs reach a terminal state."""
+        import time as _time
         run_key = f"{map_type}_{run_id}"
 
-        # Guard: never publish the same run twice
-        if run_key in self.published_runs:
-            return
+        # De-dupe: skip if the same run was recently marked published. Entry
+        # auto-expires after `_PUBLISHED_TTL_S` so a publish that ultimately
+        # failed and wasn't cleared can self-heal at the next completion check.
+        prev_ts = self.published_runs.get(run_key)
+        if prev_ts is not None:
+            if (_time.monotonic() - prev_ts) < self._PUBLISHED_TTL_S:
+                return
+            log.info(
+                "[completion] published_runs entry for %s expired (>%.0fs), allowing re-publish",
+                run_key, self._PUBLISHED_TTL_S,
+            )
+            self.published_runs.pop(run_key, None)
 
         jobs = get_pipeline_jobs_by_run(map_type, run_id)
         if not jobs:
@@ -548,8 +577,12 @@ class PipelineOrchestrator:
 
         has_ready = any(j["state"] == "READY" for j in jobs)
         if has_ready:
+            # In-flight guard: if a publish is already queued or running for
+            # this run, don't enqueue a second one.
+            if run_key in self.publishing_runs:
+                return
             log.info("[completion] All %d jobs done for %s — queuing publish", len(jobs), run_key)
-            self.published_runs.add(run_key)  # Mark before queuing to prevent race
+            self.publishing_runs.add(run_key)
             self.publish_queue.put_nowait((0, run_key, {"map_type": map_type, "run_id": run_id}))
         else:
             # All errored/cancelled — remove from active without publishing

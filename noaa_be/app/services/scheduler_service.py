@@ -28,6 +28,7 @@ from typing import Any
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.executors.pool import ThreadPoolExecutor as ApsThreadPoolExecutor
 
 from ..config import get_settings
 from ..core.discovery import discover_cycle, find_latest_accessible_cycle, latest_available_run, load_available_fff
@@ -44,12 +45,37 @@ from ..core.db import (
     get_all_job_status as db_get_all_job_status,
     reset_cancel_requested as db_reset_cancel,
     check_cancel_requested,
+    get_setting as db_get_setting,
+    set_setting as db_set_setting,
     JobCancelledError,
 )
 
 log = logging.getLogger(__name__)
 
 _scheduler: BackgroundScheduler | None = None
+_scheduler_lock = threading.Lock()
+
+# Hard cap on concurrent map jobs. Two heavy maps in parallel is the sweet
+# spot: wall-clock stays close to "all parallel" while peak CPU/RAM/NOAA-RPM
+# stays bounded. Adjust via SCHEDULER_CONCURRENCY env var.
+_CONCURRENCY_LIMIT: int = max(1, int(os.getenv("SCHEDULER_CONCURRENCY", "2")))
+
+# FIFO-ordered worker pool. Using ThreadPoolExecutor instead of bare
+# Semaphore so that "trigger-job-all" preserves MAP_SPECS submit order:
+# threading.Semaphore.acquire() is NOT FIFO on CPython — when 5 threads
+# race for 2 slots the OS scheduler picks arbitrarily, which made manual
+# runs occasionally start wind_surface before temperature_feels_like.
+# Executor.submit() is documented FIFO: first 2 submissions run immediately,
+# remaining queue up and run in submit order as workers free.
+from concurrent.futures import ThreadPoolExecutor as _Cf_ThreadPoolExecutor
+
+_job_executor: _Cf_ThreadPoolExecutor = _Cf_ThreadPoolExecutor(
+    max_workers=_CONCURRENCY_LIMIT,
+    thread_name_prefix="map_job",
+)
+
+# Persistence key for the runtime on/off toggle.
+_SETTING_KEY_ENABLED = "scheduler_enabled"
 
 
 # ---------------------------------------------------------------------------
@@ -137,10 +163,23 @@ def _cleanup_local_after_bunny_finalize(map_type: str, run_id: str, cfg: Any) ->
 
 
 # ---------------------------------------------------------------------------
+# Concurrency throttle
+# ---------------------------------------------------------------------------
+
+def _job_for_map_type_throttled(map_type: str, max_fff_override: int | None = None) -> None:
+    """Direct wrapper kept for APScheduler compatibility.
+
+    The pool (`_job_executor`) already bounds concurrency at `_CONCURRENCY_LIMIT`
+    and preserves FIFO submit order — no semaphore needed here.
+    """
+    _job_for_map_type(map_type, max_fff_override=max_fff_override)
+
+
+# ---------------------------------------------------------------------------
 # Individual map-type job
 # ---------------------------------------------------------------------------
 
-def _job_for_map_type(map_type: str) -> None:
+def _job_for_map_type(map_type: str, max_fff_override: int | None = None) -> None:
     # Guard: skip if this map_type is locked for deletion
     try:
         from ..services.delete_service import is_map_locked
@@ -155,14 +194,23 @@ def _job_for_map_type(map_type: str) -> None:
 
     status = db_get_job_status(map_type)
     if status.get("status") == "running":
-        # Check if it's a stale lock (e.g., running for > 2 hours)
+        # Stale-lock threshold: 30 minutes. Any healthy map job pushes a
+        # progress update at least every few seconds, so 30m of silence is a
+        # strong signal that the worker died without resetting status.
+        # `reset_zombie_jobs()` cleans up after a server restart; this guard
+        # handles intra-session hangs.
         last_started = status.get("last_started")
         if last_started:
             try:
                 last_dt = datetime.fromisoformat(last_started)
-                if (now - last_dt).total_seconds() < 7200:
+                elapsed = (now - last_dt).total_seconds()
+                if elapsed < 1800:
                     log.warning("Job for %s is already running, skipping trigger.", map_type)
                     return
+                log.warning(
+                    "Job for %s has been 'running' for %.0fs (>30m) — treating as stale, "
+                    "re-acquiring lock.", map_type, elapsed,
+                )
             except Exception:
                 pass
 
@@ -187,7 +235,7 @@ def _job_for_map_type(map_type: str) -> None:
         started_at=now.isoformat(),
     )
     try:
-        _run_map_job(map_type)
+        _run_map_job(map_type, max_fff_override=max_fff_override)
         status = db_get_job_status(map_type)
         status["status"] = "ok"
         status["last_success"] = datetime.now(tz=timezone.utc).isoformat()
@@ -363,7 +411,7 @@ def _hardlink_cold_output(map_type: str, run_id: str, cold_covered: set[int], cf
     return linked
 
 
-def _run_map_job(map_type: str) -> None:
+def _run_map_job(map_type: str, max_fff_override: int | None = None) -> None:
     from ..services import progress_tracker
 
     cfg = get_settings()
@@ -400,6 +448,22 @@ def _run_map_job(map_type: str) -> None:
 
     # 2. Check if we already have all expected tiles/grids
     expected = _compute_needed_fffs(map_type, cfg)
+    if max_fff_override is not None:
+        expected = [f for f in expected if f <= max_fff_override]
+        if not expected:
+            log.warning(
+                "max_fff=%d clamped %s spec to empty — nothing to do",
+                max_fff_override, map_type,
+            )
+            progress_tracker.update(
+                map_type, step="done",
+                step_detail=f"max_fff={max_fff_override} loại hết frame",
+            )
+            return
+        log.info(
+            "Manual run: %s clamped to %d frames (max_fff=%d, last f%03d)",
+            map_type, len(expected), max_fff_override, expected[-1],
+        )
     progress_tracker.update(map_type, step="checking",
                             step_detail=f"Kiểm tra output hiện có cho {run_id}…")
 
@@ -429,6 +493,7 @@ def _run_map_job(map_type: str) -> None:
         map_type, step="discovering",
         step_detail=f"Probing NOAA — {run_id} (max f{max_fff:03d})…",
     )
+    discovery_failed = False
     try:
         discover_cycle(
             run_date=probe_date,
@@ -438,10 +503,10 @@ def _run_map_job(map_type: str) -> None:
             rpm_limit=cfg.RPM_LIMIT,
         )
     except Exception as exc:
-        log.warning(
-            "Discovery failed for %s: %s — will try downloading anyway", map_type, exc)
+        discovery_failed = True
+        log.warning("Discovery failed for %s: %s", map_type, exc)
         progress_tracker.update(
-            map_type, step_detail=f"Discover thất bại: {exc} — thử tải anyway")
+            map_type, step_detail=f"Discover thất bại: {exc}")
 
     # 4. Filter expected fff to those confirmed available on NOAA.
     #    Safety net: if the availability data has no overlap with 'expected' (e.g.
@@ -451,8 +516,16 @@ def _run_map_job(map_type: str) -> None:
         cfg.AVAILABLE_DIR, map_type, probe_date, probe_hour)
     if available and any(f in available for f in expected):
         to_download = [f for f in expected if f in available]
+    elif discovery_failed and not available:
+        # Discovery threw AND no cached availability for this run — bail out
+        # rather than hammer NOAA with a blind download that's likely to fail
+        # on every frame. The next scheduler tick will retry discovery.
+        raise RuntimeError(
+            f"Discovery failed and no cached availability for {map_type} {run_id}; "
+            f"refusing to blind-download {len(expected)} frames."
+        )
     else:
-        # Either no availability data or no overlap — download all expected
+        # Cached availability exists (or empty) but no overlap — download all expected
         to_download = list(expected)
 
     # 4b. Cold-zone optimisation: frames beyond cold_fff_min that are already
@@ -564,17 +637,36 @@ def _run_map_job(map_type: str) -> None:
             _bunny_finalize_ok = finalize_map_to_bunny(map_type, run_id, cold_covered, cfg, metrics_out=metrics)
         except Exception as exc:
             log.error(
-                "finalize_map_to_bunny failed (non-fatal) %s/%s: %s",
+                "finalize_map_to_bunny raised for %s/%s: %s",
                 map_type, run_id, exc,
             )
-            if cfg.BUNNY_FAIL_FAST:
-                raise
+            # Always surface as a job-level failure: if the pointer never
+            # switched, FE keeps serving the previous run and "non-fatal"
+            # is misleading. BUNNY_FAIL_FAST is preserved for callers that
+            # rely on the old non-fatal semantics but is no longer the
+            # only way to escalate.
+            metrics["finalize_error"] = str(exc)
+            raise
+        if not _bunny_finalize_ok:
+            # finalize_map_to_bunny returned False (pointer switch failed) —
+            # treat as hard error so retry path is open.
+            metrics["finalize_error"] = "pointer_switch_failed"
+            raise RuntimeError(
+                f"Bunny pointer switch failed for {map_type}/{run_id}"
+            )
 
     # 7. Clean up ALL local data after successful Bunny finalize.
     #    Bunny is the canonical store — local GRIB2, tiles, grids, availability
     #    are no longer needed and would just waste disk space.
+    #    Set BUNNY_KEEP_LOCAL_AFTER_FINALIZE=1 to retain them for debugging.
     if cfg.BUNNY_ENABLED and _bunny_finalize_ok:
-        _cleanup_local_after_bunny_finalize(map_type, run_id, cfg)
+        if getattr(cfg, "BUNNY_KEEP_LOCAL_AFTER_FINALIZE", False):
+            log.info(
+                "BUNNY_KEEP_LOCAL_AFTER_FINALIZE=1 — skipping local cleanup for %s/%s",
+                map_type, run_id,
+            )
+        else:
+            _cleanup_local_after_bunny_finalize(map_type, run_id, cfg)
 
     # 8. Reporting hook (per-map alert + cycle complete check + DB write)
     try:
@@ -707,18 +799,21 @@ def finalize_map_to_bunny(
                 "Bunny cold copy %s/%s done: frames=%d files ok=%d failed=%d",
                 map_type, run_id, stats["frames"], stats["ok"], stats["failed"],
             )
-            if stats["failed"] > 0 and cfg.BUNNY_FAIL_FAST:
+            if stats["failed"] > 0:
+                # Any file-level failure means cold frames are incomplete on
+                # the destination → refuse to publish a partial run.
                 raise RuntimeError(
                     f"Bunny cold copy had {stats['failed']} failures "
                     f"for {map_type}/{run_id}"
                 )
         except Exception as exc:
             log.error(
-                "Bunny cold copy exception (non-fatal) %s/%s: %s",
+                "Bunny cold copy failed %s/%s: %s — aborting finalize",
                 map_type, run_id, exc,
             )
-            if cfg.BUNNY_FAIL_FAST:
-                raise
+            # Always abort: a pointer switch with missing cold frames means
+            # the FE renders empty / 404 tiles. This is never acceptable.
+            raise
         cold_end_iso = datetime.now(timezone.utc).isoformat()
 
         if metrics_out is not None:
@@ -899,31 +994,132 @@ def _generate_output(map_type: str, run_id: str, fffs: list[int], cfg: Any) -> N
 # Scheduler lifecycle
 # ---------------------------------------------------------------------------
 
-def start_scheduler() -> None:
-    global _scheduler
+# GFS cycles arrive 4×/day. Each cycle is fully uploaded to NOAA ~5h after
+# its label hour, so we trigger ~5h after each cycle: 05/11/17/23 UTC.
+_CYCLE_FIRE_HOURS = "5,11,17,23"
+
+# Stagger map-job start times across the cycle window so all maps don't pile
+# into the same minute. With 5 maps × 3-min step we span 5:05 → 5:17 (well
+# inside the available 6-hour window before the next cycle).
+_STAGGER_STEP_MIN = 3
+_STAGGER_FIRST_MIN = 5
+
+
+# ---------------------------------------------------------------------------
+# Persistent on/off toggle
+# ---------------------------------------------------------------------------
+
+def is_scheduler_enabled() -> bool:
+    """Source of truth: DB setting `scheduler_enabled` (falls back to env once)."""
+    val = db_get_setting(_SETTING_KEY_ENABLED, None)
+    if val is None:
+        env_val = bool(get_settings().SCHEDULER_ENABLED)
+        db_set_setting(_SETTING_KEY_ENABLED, env_val)
+        return env_val
+    return bool(val)
+
+
+def _set_scheduler_enabled(enabled: bool) -> None:
+    db_set_setting(_SETTING_KEY_ENABLED, bool(enabled))
+
+
+# ---------------------------------------------------------------------------
+# Catchup safety-net job — runs every 2h, fires any map whose Bunny pointer
+# has fallen behind the latest accessible NOAA cycle.
+# ---------------------------------------------------------------------------
+
+def _catchup_check() -> None:
+    """Probe the latest accessible GFS cycle once, then fire any out-of-date map."""
     cfg = get_settings()
-    
-    # Khởi tạo DB table nếu chưa có
-    db_init()
-    
-    if not cfg.SCHEDULER_ENABLED:
-        log.info("Scheduler disabled via SCHEDULER_ENABLED=false")
+
+    # Single probe shared by all maps — replaces the 5× duplicate probes
+    # that the per-map _run_map_job would do on each fire.
+    try:
+        max_fff_all = max(_spec_max_fff(mt) for mt in MAP_SPECS)
+    except ValueError:
         return
+    probe_date, probe_hour = find_latest_accessible_cycle(max_fff_all)
+    if probe_date is None or probe_hour is None:
+        log.debug("Catchup: NOAA unreachable, skipping")
+        return
+    run_id = run_id_from_date(probe_date, probe_hour)
 
-    _scheduler = BackgroundScheduler(timezone="UTC", daemon=True)
-    interval_min = cfg.SCHEDULER_INTERVAL_MINUTES
+    bunny = None
+    if cfg.BUNNY_ENABLED:
+        try:
+            from .bunny_storage import get_bunny_client
+            bunny = get_bunny_client()
+        except Exception as exc:
+            log.debug("Catchup: Bunny client unavailable: %s", exc)
 
+    fired = 0
     for map_type in MAP_SPECS:
-        _scheduler.add_job(
-            func=_job_for_map_type,
+        try:
+            status = db_get_job_status(map_type)
+            if status.get("status") == "running":
+                continue
+
+            # Skip if Bunny pointer already at run_id (cheap GET cached at CDN edge)
+            if bunny is not None:
+                try:
+                    ptr = bunny.read_pointer(map_type)
+                    if ptr and ptr.get("current_run") == run_id:
+                        continue
+                except Exception:
+                    pass
+
+            log.info("Catchup: firing %s (target run %s)", map_type, run_id)
+            trigger_job(map_type)
+            fired += 1
+        except Exception as exc:
+            log.warning("Catchup probe failed for %s: %s", map_type, exc)
+
+    if fired:
+        log.info("Catchup: triggered %d/%d maps", fired, len(MAP_SPECS))
+
+
+# ---------------------------------------------------------------------------
+# Scheduler lifecycle (idempotent; safe to call multiple times)
+# ---------------------------------------------------------------------------
+
+def _build_scheduler() -> BackgroundScheduler:
+    """Construct (but do not start) a BackgroundScheduler wired with all jobs."""
+    cfg = get_settings()
+
+    sched = BackgroundScheduler(
+        timezone="UTC",
+        daemon=True,
+        executors={
+            # max_workers ≥ concurrency cap + 2 small overhead jobs
+            'default': ApsThreadPoolExecutor(max_workers=_CONCURRENCY_LIMIT + 2),
+        },
+        job_defaults={
+            'coalesce': True,         # collapse missed fires into one
+            'misfire_grace_time': 1800,
+            'max_instances': 1,       # one instance per job_id at any time
+        },
+    )
+
+    # Per-map jobs: cron-aligned to GFS availability (T+5h), staggered by 3 min.
+    # Note: cron handler calls `trigger_job` (which submits to the FIFO pool)
+    # instead of running the work directly, so cron + manual fires share the
+    # same _CONCURRENCY_LIMIT and the same submit-order guarantee.
+    map_types = list(MAP_SPECS.keys())
+    for i, map_type in enumerate(map_types):
+        stagger_min = _STAGGER_FIRST_MIN + i * _STAGGER_STEP_MIN
+        sched.add_job(
+            func=trigger_job,
             args=[map_type],
-            trigger=IntervalTrigger(minutes=interval_min),
+            trigger=CronTrigger(
+                hour=_CYCLE_FIRE_HOURS,
+                minute=stagger_min,
+                timezone='UTC',
+            ),
             id=f"job_{map_type}",
             name=f"Map job: {map_type}",
             replace_existing=True,
-            misfire_grace_time=300,
         )
-        
+
         status = db_get_job_status(map_type)
         if not status:
             db_update_job_status(map_type, {
@@ -932,12 +1128,21 @@ def start_scheduler() -> None:
                 "last_success": None,
             })
 
-    # ── Reporting cron jobs ──────────────────────────────────────────
-    # Daily aggregation report (default 00:30 UTC)
+    # Catchup every 2h on the half-hour (off-cycle so it doesn't clash with map fires)
+    sched.add_job(
+        func=_catchup_check,
+        trigger=CronTrigger(hour='*/2', minute=30, timezone='UTC'),
+        id="catchup_check",
+        name="Catchup coverage check",
+        replace_existing=True,
+        misfire_grace_time=600,
+    )
+
+    # Daily aggregation report
     if cfg.TELEGRAM_ENABLED:
         try:
             from .cycle_tracker import daily_aggregation_job
-            _scheduler.add_job(
+            sched.add_job(
                 func=daily_aggregation_job,
                 trigger=CronTrigger(
                     hour=cfg.DAILY_REPORT_UTC_HOUR,
@@ -949,18 +1154,14 @@ def start_scheduler() -> None:
                 replace_existing=True,
                 misfire_grace_time=600,
             )
-            log.info(
-                "Daily report scheduled at %02d:%02d UTC",
-                cfg.DAILY_REPORT_UTC_HOUR, cfg.DAILY_REPORT_UTC_MINUTE,
-            )
         except Exception as e:
             log.error("Failed to schedule daily_aggregation_job: %s", e)
 
-    # Bunny analytics hourly polling (only if Account API key configured)
+    # Bunny analytics hourly polling
     if cfg.BUNNY_ENABLED and cfg.BUNNY_ACCOUNT_API_KEY:
         try:
             from .bunny_analytics import hourly_poll_job
-            _scheduler.add_job(
+            sched.add_job(
                 func=hourly_poll_job,
                 trigger=IntervalTrigger(minutes=cfg.BUNNY_ANALYTICS_POLL_MIN),
                 id="bunny_analytics_poll",
@@ -968,31 +1169,157 @@ def start_scheduler() -> None:
                 replace_existing=True,
                 misfire_grace_time=300,
             )
-            log.info(
-                "Bunny analytics polling scheduled every %d minutes",
-                cfg.BUNNY_ANALYTICS_POLL_MIN,
-            )
         except Exception as e:
             log.error("Failed to schedule bunny_analytics hourly_poll_job: %s", e)
 
-    _scheduler.start()
-    log.info("Scheduler started: %d jobs, interval=%d min",
-             len(MAP_SPECS), interval_min)
+    return sched
+
+
+def reset_zombie_jobs() -> int:
+    """Reset any `status=running` job in DB to `idle` — these are leftovers from
+    a previous server process that died without updating DB.
+
+    Returns the number of map_types reset. Called once at lifespan startup so
+    that a fresh server can re-fire jobs without hitting the stale-lock guard
+    in `_job_for_map_type`.
+    """
+    from ..services import progress_tracker as _pt
+    now_iso = datetime.now(tz=timezone.utc).isoformat()
+    n = 0
+    for map_type, status in db_get_all_job_status().items():
+        if status.get("status") == "running":
+            status["status"] = "idle"
+            # Preserve any prior `last_error` so diagnostics survive the reset.
+            # Only set a synthetic note if no real error was already captured.
+            if not status.get("last_error"):
+                status["last_error"] = (
+                    "Reset on server restart (was 'running' from previous session)"
+                )
+            status["last_zombie_reset_at"] = now_iso
+            status.pop("cancel_requested", None)
+            db_update_job_status(map_type, status)
+            _pt.update(
+                map_type, step="idle",
+                step_detail="Reset on server restart",
+            )
+            n += 1
+    if n:
+        log.info("Zombie reset: %d map(s) flipped 'running' → 'idle' on startup", n)
+    return n
+
+
+def start_scheduler() -> None:
+    """Start the scheduler if (a) not already running and (b) persistently enabled.
+
+    Called once at FastAPI lifespan startup. Also called by `enable_scheduler()`
+    when the admin flips the toggle on.
+
+    Note: zombie-job cleanup is NOT done here — it would clobber genuinely
+    running jobs if called via the admin enable/disable cycle. The lifespan
+    handler calls `reset_zombie_jobs()` once at process startup instead.
+    """
+    global _scheduler
+    db_init()
+
+    with _scheduler_lock:
+        if _scheduler is not None and _scheduler.running:
+            log.info("Scheduler already running — no-op")
+            return
+
+        if not is_scheduler_enabled():
+            log.info(
+                "Scheduler disabled (persistent state) — not starting. "
+                "Toggle via POST /api/v1/admin/scheduler/enable.",
+            )
+            return
+
+        _scheduler = _build_scheduler()
+        _scheduler.start()
+        log.info(
+            "Scheduler started: %d map jobs cron-aligned %s UTC, stagger=%dmin, "
+            "concurrency_cap=%d, catchup=*/2h:30",
+            len(MAP_SPECS), _CYCLE_FIRE_HOURS, _STAGGER_STEP_MIN, _CONCURRENCY_LIMIT,
+        )
 
 
 def stop_scheduler() -> None:
+    """Shut down the scheduler. Idempotent."""
     global _scheduler
-    if _scheduler and _scheduler.running:
-        _scheduler.shutdown(wait=False)
-        log.info("Scheduler stopped")
-    _scheduler = None
+    with _scheduler_lock:
+        if _scheduler is not None and _scheduler.running:
+            _scheduler.shutdown(wait=False)
+            log.info("Scheduler stopped")
+        _scheduler = None
 
 
-def trigger_job(map_type: str) -> None:
-    """Fire a job immediately in a daemon thread (for admin endpoint)."""
-    t = threading.Thread(target=_job_for_map_type,
-                         args=[map_type], daemon=True)
-    t.start()
+def enable_scheduler() -> dict:
+    """Persist enabled=true + start scheduler. Returns current info dict."""
+    _set_scheduler_enabled(True)
+    start_scheduler()
+    return get_scheduler_info()
+
+
+def disable_scheduler() -> dict:
+    """Persist enabled=false + stop scheduler. Returns current info dict.
+
+    In-flight map jobs continue to completion (we don't kill threads), but no
+    new cron fires will occur.
+    """
+    _set_scheduler_enabled(False)
+    stop_scheduler()
+    return get_scheduler_info()
+
+
+def get_scheduler_info() -> dict:
+    """Snapshot of scheduler state for UI / monitoring."""
+    enabled = is_scheduler_enabled()
+    running = _scheduler is not None and _scheduler.running
+    jobs_info: list[dict] = []
+    if running and _scheduler is not None:
+        for j in _scheduler.get_jobs():
+            jobs_info.append({
+                "id": j.id,
+                "name": j.name,
+                "next_run": j.next_run_time.isoformat() if j.next_run_time else None,
+                "trigger": str(j.trigger),
+            })
+    # in-flight slot occupancy via ThreadPoolExecutor internals (CPython detail).
+    try:
+        # _work_queue holds queued (not-yet-running) tasks; _threads holds workers.
+        # An "active" slot ≈ worker thread that is currently running a task. We
+        # approximate as: total workers - idle workers. The executor doesn't
+        # expose "idle" directly, so just report queue size + workers count.
+        active_slots = min(
+            _CONCURRENCY_LIMIT,
+            len(getattr(_job_executor, "_threads", [])),
+        )
+        queued_jobs = _job_executor._work_queue.qsize()  # type: ignore[attr-defined]
+    except Exception:
+        active_slots = None
+        queued_jobs = None
+
+    return {
+        "enabled": enabled,
+        "running": running,
+        "concurrency_limit": _CONCURRENCY_LIMIT,
+        "active_slots": active_slots,
+        "queued_jobs": queued_jobs,
+        "cycle_fire_hours_utc": _CYCLE_FIRE_HOURS,
+        "stagger_minutes": _STAGGER_STEP_MIN,
+        "jobs": jobs_info,
+    }
+
+
+def trigger_job(map_type: str, max_fff_override: int | None = None) -> None:
+    """Submit a map job to the shared FIFO executor (admin endpoint + cron helper).
+
+    Calls go to `_job_executor` which preserves submit order: the first
+    `_CONCURRENCY_LIMIT` submissions start immediately, the rest queue
+    and run in submit order as workers free. This guarantees that
+    `trigger-job-all` honours MAP_SPECS order — fixes the bug where
+    wind_surface occasionally started before temperature_feels_like.
+    """
+    _job_executor.submit(_job_for_map_type, map_type, max_fff_override)
 
 
 def get_all_job_status() -> dict[str, dict]:

@@ -386,9 +386,17 @@ class BunnyStorageClient:
           2. For each file: GET old → PUT new (parallel up to max_parallel)
 
         Returns:
-            {"total": N, "ok": K, "failed": M, "frames": F}
+            {"total": N, "ok": K, "failed": M, "frames": F,
+             "frames_incomplete": [labels], "bytes": B}
+
+        Raises RuntimeError if any frame ends up with strictly fewer files
+        on the destination than were present on the source — this protects
+        the atomic pointer switch from publishing an incomplete cold frame.
         """
-        results = {"total": 0, "ok": 0, "failed": 0, "frames": 0}
+        results: dict = {
+            "total": 0, "ok": 0, "failed": 0, "frames": 0,
+            "frames_incomplete": [], "bytes": 0,
+        }
         for label in fff_labels:
             src_prefix = f"{map_type}/{src_run}/{label}"
             files = self.list_files(src_prefix)
@@ -397,6 +405,7 @@ class BunnyStorageClient:
                 continue
             results["frames"] += 1
             results["total"] += len(files)
+            frame_ok_count = 0
 
             # Parallel GET+PUT
             with ThreadPoolExecutor(max_workers=self.max_parallel) as pool:
@@ -418,12 +427,36 @@ class BunnyStorageClient:
                         ok = False
                     if ok:
                         results["ok"] += 1
+                        frame_ok_count += 1
                     else:
                         results["failed"] += 1
                         if self._fail_fast:
                             raise RuntimeError(
                                 f"Bunny copy failed: {src} → {dst}"
                             )
+
+            # Per-frame post-copy verification: re-LIST destination and
+            # compare counts. If we copied N source files but the destination
+            # has fewer than N for this label, refuse to call the run safe.
+            if frame_ok_count < len(files):
+                results["frames_incomplete"].append(label)
+            else:
+                dst_prefix = f"{map_type}/{dst_run}/{label}"
+                dst_files = self.list_files(dst_prefix)
+                if len(dst_files) < len(files):
+                    log.warning(
+                        "Bunny copy_run_subset: dst %s has %d files, src had %d — incomplete",
+                        dst_prefix, len(dst_files), len(files),
+                    )
+                    results["frames_incomplete"].append(label)
+
+        if results["frames_incomplete"]:
+            # Surface as a hard error — caller (finalize_map_to_bunny) must
+            # NOT switch the pointer to a run whose cold frames are missing.
+            raise RuntimeError(
+                f"Bunny cold copy incomplete: {len(results['frames_incomplete'])} frame(s) "
+                f"missing files ({results['frames_incomplete'][:5]}…)"
+            )
         return results
 
 

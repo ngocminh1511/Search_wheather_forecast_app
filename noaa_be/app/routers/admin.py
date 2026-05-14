@@ -14,15 +14,16 @@ GET  /api/v1/admin/jobs                     → all job statuses
 import logging
 from typing import Optional, Any, Dict
 
-from fastapi import APIRouter, BackgroundTasks, Body, HTTPException, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Query, Request
 
 log = logging.getLogger(__name__)
 from fastapi.responses import StreamingResponse
 
+from ..core.auth import verify_admin_token
 from ..schemas.map import AdminJobStatus
 from ..services.scheduler_service import get_all_job_status, trigger_job
 
-router = APIRouter(prefix="/admin")
+router = APIRouter(prefix="/admin", dependencies=[Depends(verify_admin_token)])
 
 
 # ---------------------------------------------------------------------------
@@ -82,25 +83,52 @@ def get_logs(since: int = Query(default=0), limit: int = Query(default=200)) -> 
 # ---------------------------------------------------------------------------
 
 @router.post("/trigger-job/{map_type}")
-def trigger_map_job(map_type: str, background_tasks: BackgroundTasks) -> dict:
+def trigger_map_job(
+    map_type: str,
+    background_tasks: BackgroundTasks,
+    max_fff: Optional[int] = Query(
+        default=None,
+        description="Clamp spec fff list to f ≤ max_fff. None = full auto spec.",
+    ),
+) -> dict:
     """Fire the scheduler job for one map_type immediately in background."""
     from ..core.pipeline_adapter import get_map_specs
     specs = get_map_specs()
     if map_type not in specs:
         raise HTTPException(
             status_code=404, detail=f"Unknown map_type: {map_type!r}")
-    background_tasks.add_task(trigger_job, map_type)
-    return {"queued": True, "map_type": map_type}
+    background_tasks.add_task(trigger_job, map_type, max_fff)
+    return {"queued": True, "map_type": map_type, "max_fff": max_fff}
 
 
 @router.post("/trigger-job-all")
-def trigger_all_jobs(background_tasks: BackgroundTasks) -> dict:
-    """Fire scheduler jobs for all map types immediately."""
+def trigger_all_jobs(
+    background_tasks: BackgroundTasks,
+    max_fff: Optional[int] = Query(
+        default=None,
+        description="Clamp spec fff list to f ≤ max_fff for ALL maps. "
+                    "None = full auto spec (same as scheduler cron fire).",
+    ),
+) -> dict:
+    """Fire the full auto pipeline for ALL maps. Same code path as scheduler.
+
+    This is the "Run Pipeline" button in the manual admin UI — identical to
+    auto except you can pass `max_fff` to test with a smaller frame set.
+    Goes through the concurrency-throttled wrapper so behaviour matches auto.
+    """
     from ..core.pipeline_adapter import get_map_specs
     specs = get_map_specs()
     for mt in specs:
-        background_tasks.add_task(trigger_job, mt)
-    return {"queued": True, "map_types": list(specs.keys())}
+        background_tasks.add_task(trigger_job, mt, max_fff)
+    return {
+        "queued": True,
+        "map_types": list(specs.keys()),
+        "max_fff": max_fff,
+        "note": (
+            "Same pipeline as auto. Concurrency cap applies — maps will run "
+            "in batches of SCHEDULER_CONCURRENCY (default 2)."
+        ),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -274,6 +302,11 @@ def trigger_download(
 def trigger_generate_tiles(
     map_type: str = Body(...),
     run_id: str = Body(..., example="20260406_00z"),
+    max_fff: Optional[int] = Body(
+        default=None,
+        description="Giới hạn forecast hour tối đa cho generate. None = dùng spec đầy đủ. "
+                    "Dùng để test với vài frame đầu (vd max_fff=12 cho rain_basic → 3 frames f006/f009/f012).",
+    ),
     background_tasks: BackgroundTasks = BackgroundTasks(),
 ) -> dict:
     """Generate PNG tiles for a (map_type, run_id) in background."""
@@ -317,6 +350,13 @@ def trigger_generate_tiles(
         )
         try:
             fffs = _compute_needed_fffs(map_type, cfg)
+            if max_fff is not None:
+                fffs = [f for f in fffs if f <= max_fff]
+                if not fffs:
+                    raise RuntimeError(
+                        f"max_fff={max_fff} loại bỏ hết frame của {map_type}; "
+                        f"min spec fff = {_compute_needed_fffs(map_type, cfg)[0]}"
+                    )
             _tile_result = generate_run(
                 map_type, run_id, fffs, data_dir=cfg.DATA_DIR)
             _tile_dur = _tile_result.get("duration_s", 0) if isinstance(
@@ -356,15 +396,28 @@ def trigger_generate_tiles(
 
 
 @router.post("/finalize-bunny/{map_type}/{run_id}")
-def finalize_bunny(map_type: str, run_id: str) -> dict:
+def finalize_bunny(
+    map_type: str,
+    run_id: str,
+    cleanup_local: bool = Query(
+        default=True,
+        description="Xoá DATA/TILES/STAGING/GRID local sau khi pointer switch OK. "
+                    "Mặc định True — Bunny là canonical store, local chỉ là tạm.",
+    ),
+) -> dict:
     """Write/refresh `_current.json` + `_timeline.json` lên Bunny cho run này.
 
     Dùng khi:
     - Pipeline đã push chunks lên Bunny nhưng chưa kịp gọi finalize (crash giữa chừng)
     - Manual Step 3 sinh tile xong và cần FE thấy được
+
+    Sau khi pointer switch OK, **xoá toàn bộ local data** của (map_type, run_id)
+    để tránh ứ đọng đĩa khi Bunny đã có data. Pass `cleanup_local=false` nếu
+    muốn giữ lại để debug.
     """
     from ..config import get_settings
     from ..services.bunny_storage import get_bunny_client
+    from ..services.scheduler_service import _cleanup_local_after_bunny_finalize
     from ..services.timeline_builder import build_timeline_static
 
     cfg = get_settings()
@@ -401,12 +454,143 @@ def finalize_bunny(map_type: str, run_id: str) -> dict:
         }
     timeline_ok = bunny.write_timeline_metadata(map_type, timeline_doc)
 
+    # 3. Cleanup local — Bunny is canonical, local is dead weight after switch
+    cleanup_done = False
+    if cleanup_local and pointer_ok:
+        try:
+            _cleanup_local_after_bunny_finalize(map_type, run_id, cfg)
+            cleanup_done = True
+        except Exception as exc:
+            log.warning(
+                "Local cleanup after finalize failed for %s/%s: %s",
+                map_type, run_id, exc,
+            )
+
     return {
         "pointer_ok": bool(pointer_ok),
+        "local_cleaned": cleanup_done,
         "timeline_ok": bool(timeline_ok),
         "frame_count": len(timeline_doc["frames"]),
         "map_type": map_type,
         "run_id": run_id,
+    }
+
+
+@router.post("/cleanup-local/{map_type}/{run_id}")
+def cleanup_local(map_type: str, run_id: str) -> dict:
+    """Xoá local DATA/TILES/STAGING/GRIDS cho (map_type, run_id) — KHÔNG đụng Bunny.
+
+    Dùng khi tiles đã đẩy lên Bunny thành công nhưng local còn ứ đọng
+    (vd. finalize bị crash, hoặc Step 3 manual chưa được dọn). Khác với
+    `DELETE /runs/{mt}/{run_id}` ở chỗ KHÔNG xoá Bunny mirror.
+    """
+    from ..config import get_settings
+    from ..services.scheduler_service import _cleanup_local_after_bunny_finalize
+
+    cfg = get_settings()
+    try:
+        _cleanup_local_after_bunny_finalize(map_type, run_id, cfg)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+    return {"map_type": map_type, "run_id": run_id, "status": "cleaned"}
+
+
+@router.post("/cleanup-orphan-local")
+def cleanup_orphan_local(
+    dry_run: bool = Body(default=True, description="True = chỉ liệt kê, không xoá"),
+) -> dict:
+    """Quét local TILES/DATA/STAGING/GRIDS, xoá run nào đã có pointer match trên Bunny.
+
+    Ý nghĩa: nếu Bunny `_current.json` của map đã trỏ tới run_id ↔ Bunny là
+    canonical → local không cần nữa. Đây là cleanup-on-demand cho mọi backlog
+    do crash giữa chừng hoặc manual flow trước khi fix.
+
+    Trả về danh sách (map_type, run_id) đã/sẽ xoá + tổng dung lượng giải phóng.
+    """
+    import os as _os
+    from ..config import get_settings
+    from ..services.bunny_storage import get_bunny_client
+    from ..services.scheduler_service import _cleanup_local_after_bunny_finalize
+
+    cfg = get_settings()
+    if not cfg.BUNNY_ENABLED:
+        raise HTTPException(status_code=400, detail="BUNNY_ENABLED=0")
+
+    bunny = get_bunny_client()
+    if bunny is None:
+        raise HTTPException(status_code=500, detail="Bunny client unavailable")
+
+    # Build set of (mt, run_id) present locally
+    candidates: set[tuple[str, str]] = set()
+    for base in (cfg.TILES_DIR, cfg.DATA_DIR, cfg.STAGING_DIR, cfg.JSON_GRIDS_DIR):
+        if not base.exists():
+            continue
+        for mt_dir in base.iterdir():
+            if not mt_dir.is_dir():
+                continue
+            for rid_dir in mt_dir.iterdir():
+                if rid_dir.is_dir():
+                    candidates.add((mt_dir.name, rid_dir.name))
+
+    def _dir_size(p) -> int:
+        total = 0
+        if not p.exists():
+            return 0
+        try:
+            for dp, _, fns in _os.walk(p):
+                for fn in fns:
+                    fp = _os.path.join(dp, fn)
+                    if not _os.path.islink(fp):
+                        total += _os.path.getsize(fp)
+        except OSError:
+            pass
+        return total
+
+    # For each candidate, check Bunny pointer
+    cleaned: list[dict] = []
+    skipped: list[dict] = []
+    pointer_cache: dict[str, str | None] = {}
+
+    for map_type, run_id in sorted(candidates):
+        try:
+            if map_type not in pointer_cache:
+                ptr = bunny.read_pointer(map_type)
+                pointer_cache[map_type] = ptr.get("current_run") if ptr else None
+            bunny_current = pointer_cache[map_type]
+        except Exception as exc:
+            skipped.append({"map_type": map_type, "run_id": run_id, "reason": f"pointer read failed: {exc}"})
+            continue
+
+        if bunny_current != run_id:
+            skipped.append({
+                "map_type": map_type, "run_id": run_id,
+                "reason": f"Bunny pointer={bunny_current!r} != run_id (not safe to clean)",
+            })
+            continue
+
+        # Bunny pointer matches → local is dead weight
+        size_bytes = sum(
+            _dir_size(b / map_type / run_id)
+            for b in (cfg.TILES_DIR, cfg.DATA_DIR, cfg.STAGING_DIR, cfg.JSON_GRIDS_DIR)
+        )
+        entry = {"map_type": map_type, "run_id": run_id, "bytes_freed": size_bytes}
+        if not dry_run:
+            try:
+                _cleanup_local_after_bunny_finalize(map_type, run_id, cfg)
+                entry["status"] = "deleted"
+            except Exception as exc:
+                entry["status"] = f"error: {exc}"
+        else:
+            entry["status"] = "dry_run"
+        cleaned.append(entry)
+
+    total_bytes = sum(c.get("bytes_freed", 0) for c in cleaned)
+    return {
+        "dry_run": dry_run,
+        "total_bytes_freed": total_bytes,
+        "total_mb_freed": round(total_bytes / 1e6, 1),
+        "cleaned": cleaned,
+        "skipped": skipped,
     }
 
 
@@ -596,8 +780,9 @@ def trigger_generate_grids(
                     try:
                         generate_grid(map_type, run_id, fff, "rain_advanced",
                                       data_dir=cfg.DATA_DIR, grids_dir=cfg.JSON_GRIDS_DIR)
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        log.warning("generate_grid failed for %s/%s/f%03d: %s",
+                                    map_type, run_id, fff, exc)
                 done += 1
                 progress_tracker.update(map_type, frames_done=done)
 
@@ -690,8 +875,8 @@ def _compute_storage_stats():
                     if not os.path.islink(fp):
                         total_size += os.path.getsize(fp)
                         file_count += 1
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("storage size walk failed for %s: %s", path, exc)
         return total_size, file_count
         
     def ensure_run(mt, rid):
@@ -885,6 +1070,16 @@ def enqueue_bulk_delete(
             status_code=400, detail="map_types must not be empty")
 
     # KHÔNG check vs specs — cho phép dọn data của map cũ đã remove khỏi spec.
+    # Nhưng vẫn enforce slug-safe charset để tránh path-traversal trên local FS.
+    import re as _re
+    _slug_re = _re.compile(r"^[a-z0-9_]+$")
+    for mt in map_types:
+        if not isinstance(mt, str) or not _slug_re.match(mt):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid map_type {mt!r}: must match [a-z0-9_]+",
+            )
+
     if run_ids:
         for rid in run_ids:
             try:
@@ -905,13 +1100,6 @@ def enqueue_bulk_delete(
         "map_types": map_types,
         "run_ids": run_ids,
     }
-
-
-@router.get("/delete-jobs")
-def list_delete_jobs() -> list[dict]:
-    """List all delete jobs (in-memory, current server session)."""
-    from ..services.delete_service import list_jobs as _list_jobs
-    return _list_jobs()
 
 
 @router.get("/delete-jobs/{job_id}")
@@ -1049,6 +1237,11 @@ from pathlib import Path
 _benchmark_process = None
 _last_benchmark_mode = "baseline"
 
+_ALLOWED_BENCHMARK_MODES = frozenset(
+    {"baseline", "stable-prod", "scheduler_realistic", "cold_zone", "predict"}
+)
+
+
 @router.post("/benchmark/start")
 def benchmark_start(
     mode: str = Body(default="baseline"),
@@ -1056,6 +1249,11 @@ def benchmark_start(
     cold_frames: int = Body(default=1),
 ) -> dict:
     global _benchmark_process, _last_benchmark_mode
+    if mode not in _ALLOWED_BENCHMARK_MODES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid mode {mode!r}; allowed: {sorted(_ALLOWED_BENCHMARK_MODES)}",
+        )
     if _benchmark_process is not None and _benchmark_process.poll() is None:
         return {"status": "error", "message": "Benchmark is already running."}
 
@@ -1511,6 +1709,37 @@ def config_public() -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Scheduler control — enable/disable + status
+# ---------------------------------------------------------------------------
+
+@router.get("/scheduler")
+def scheduler_status() -> dict:
+    """Return scheduler state: enabled (persistent), running (in-process), jobs."""
+    from ..services.scheduler_service import get_scheduler_info
+    return get_scheduler_info()
+
+
+@router.post("/scheduler/enable")
+def scheduler_enable() -> dict:
+    """Persist enabled=true + start scheduler if not already running.
+
+    Persists the choice in DB so the next restart honours it.
+    """
+    from ..services.scheduler_service import enable_scheduler
+    return enable_scheduler()
+
+
+@router.post("/scheduler/disable")
+def scheduler_disable() -> dict:
+    """Persist enabled=false + stop scheduler.
+
+    In-flight map jobs run to completion; only future cron fires are cancelled.
+    """
+    from ..services.scheduler_service import disable_scheduler
+    return disable_scheduler()
+
+
+# ---------------------------------------------------------------------------
 # SSE stream — real-time job status + progress + logs
 # ---------------------------------------------------------------------------
 
@@ -1527,19 +1756,28 @@ async def admin_stream(request: Request):
     """
     import asyncio
     import json as _json
+    import time as _time
     from ..core.db import get_all_job_status, get_all_progress
     from ..services.log_buffer import get_lines, get_max_seq
+
+    # Cap a single SSE connection at 1h to avoid permanently-held sockets
+    # from forgotten browser tabs. Clients reconnect automatically.
+    _SSE_MAX_DURATION_S = 3600.0
 
     async def gen():
         last_log_seq = max(0, get_max_seq() - 50)  # backfill last 50 lines
         last_jobs_hash = None
         last_prog_hash = None
         idle_ticks = 0
+        started = _time.monotonic()
 
         yield "event: hello\ndata: {}\n\n"
 
         while True:
             if await request.is_disconnected():
+                break
+            if (_time.monotonic() - started) > _SSE_MAX_DURATION_S:
+                yield "event: bye\ndata: {\"reason\":\"max_duration\"}\n\n"
                 break
 
             emitted = False

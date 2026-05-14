@@ -43,7 +43,15 @@
       "Bash(flutter pub *)",
       "Bash(curl -s http://localhost:8000/api/v1/admin/jobs)",
       "Bash(curl -s -o /dev/null -w '%{http_code}' https://weather-tiles-cdn.b-cdn.net/tiles/__TRACKED_VAR__/_current.json)",
-      "Bash(curl -s -o /dev/null -w '%{http_code}' https://weather-tiles-cdn.b-cdn.net/tiles/__TRACKED_VAR__/_timeline.json)"
+      "Bash(curl -s -o /dev/null -w '%{http_code}' https://weather-tiles-cdn.b-cdn.net/tiles/__TRACKED_VAR__/_timeline.json)",
+      "Bash(grep -E \"\\\\.\\(dart|yaml|gradle|plist|md\\)$\")",
+      "Bash(git -C /Users/goodjob/mobile/doan/Search_wheather_forecast_app/noaa_be diff --stat)",
+      "Bash(grep -n \"except.*pass\\\\|except.*:\\\\s*$\" /Users/goodjob/mobile/doan/Search_wheather_forecast_app/noaa_be/app/routers/admin.py)",
+      "Bash(grep -o '\\\\${[^}]*}')",
+      "Bash(chmod +x /Users/goodjob/mobile/doan/Search_wheather_forecast_app/noaa_be/scripts/preflight.sh)",
+      "Bash(flutter test *)",
+      "Bash(python -m compileall -q app pipeline_main.py)",
+      "Bash(flutter build *)"
     ],
     "additionalDirectories": [
       "/Users/goodjob/mobile/doan/noaa_weather/lib/features/weather_map/domain/models",

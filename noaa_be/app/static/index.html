@@ -46,6 +46,28 @@
         [x-cloak] { display: none !important; }
         .cycle-row-active { background: rgba(59, 130, 246, 0.08) !important; border-left: 3px solid var(--accent-blue); }
 
+        /* Scheduler toggle switch */
+        .sched-switch { position: relative; display: inline-block; width: 56px; height: 30px; cursor: pointer; }
+        .sched-switch input { opacity: 0; width: 0; height: 0; }
+        .sched-slider {
+            position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(148, 163, 184, 0.25);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 30px;
+            transition: 0.25s;
+        }
+        .sched-slider::before {
+            content: ""; position: absolute; height: 22px; width: 22px;
+            left: 3px; bottom: 3px; background: white; border-radius: 50%;
+            transition: 0.25s; box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+        }
+        .sched-switch input:checked + .sched-slider {
+            background: rgba(16, 185, 129, 0.45);
+            border-color: rgba(16, 185, 129, 0.6);
+        }
+        .sched-switch input:checked + .sched-slider::before { transform: translateX(26px); }
+        .sched-switch input:disabled + .sched-slider { opacity: 0.5; cursor: not-allowed; }
+
         /* Sidebar */
         .sidebar {
             width: 280px;
@@ -521,8 +543,39 @@
         <div id="view-pipeline" class="view-panel">
             <div class="view-header">
                 <h2 class="view-title">Live Cycle Monitor <span class="badge-tag tag-real">Real Data</span></h2>
-                <div id="lastUpdate" class="mono" style="color: var(--text-muted); font-size: 14px;">Syncing...</div>
+                <div style="display:flex; align-items:center; gap:16px;">
+                    <div id="lastUpdate" class="mono" style="color: var(--text-muted); font-size: 14px;">Syncing...</div>
+                </div>
             </div>
+
+            <!-- Auto scheduler control panel -->
+            <div class="card" id="schedulerCard" style="margin-bottom: 24px; padding: 20px 24px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; gap:16px; flex-wrap:wrap;">
+                    <div style="display:flex; align-items:center; gap:16px;">
+                        <i class="ph ph-circuitry" style="font-size: 28px; color: var(--accent-cyan);"></i>
+                        <div>
+                            <div style="font-size: 15px; font-weight: 600; color: var(--text-main);">
+                                Auto Scheduler
+                                <span id="schedStateBadge" class="badge-tag" style="margin-left:8px; background: rgba(148,163,184,0.15); color: var(--text-muted); border: 1px solid rgba(148,163,184,0.3);">unknown</span>
+                            </div>
+                            <div id="schedSummary" class="mono" style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
+                                Loading…
+                            </div>
+                        </div>
+                    </div>
+                    <div style="display:flex; align-items:center; gap:10px;">
+                        <button id="btnSchedRefresh" class="btn btn-ghost" style="padding: 8px 14px; font-size: 13px; width:auto;" onclick="fetchSchedulerInfo()">
+                            <i class="ph ph-arrows-clockwise"></i> Refresh
+                        </button>
+                        <label class="sched-switch" title="Bật/tắt auto scheduler (lưu vào DB, tồn tại sau restart)">
+                            <input type="checkbox" id="schedToggle" onchange="toggleScheduler(this.checked)">
+                            <span class="sched-slider"></span>
+                        </label>
+                    </div>
+                </div>
+                <div id="schedJobsList" class="mono" style="display:none; margin-top: 16px; padding-top: 16px; border-top: 1px dashed rgba(255,255,255,0.08); font-size: 12px; color: var(--text-muted);"></div>
+            </div>
+
             <div class="map-runs-grid" id="mapRunsGrid">
                 <!-- Map cards injected by JS -->
             </div>
@@ -537,72 +590,47 @@
                 <!-- Left: Configuration & Steps -->
                 <div class="card" style="padding: 24px;">
                     <div class="step-progress">
-                        <div class="step" id="step-1"><div class="step-circle">1</div><div class="step-label">Discover</div></div>
+                        <div class="step" id="step-1"><div class="step-circle"><i class="ph ph-magnifying-glass"></i></div><div class="step-label">Discover</div></div>
                         <div class="step-line" id="line-1"></div>
-                        <div class="step" id="step-2"><div class="step-circle">2</div><div class="step-label">Download</div></div>
+                        <div class="step" id="step-2"><div class="step-circle"><i class="ph ph-download-simple"></i></div><div class="step-label">Download</div></div>
                         <div class="step-line" id="line-2"></div>
-                        <div class="step" id="step-3"><div class="step-circle">3</div><div class="step-label">Generate</div></div>
+                        <div class="step" id="step-3"><div class="step-circle"><i class="ph ph-stack"></i></div><div class="step-label">Generate</div></div>
                         <div class="step-line" id="line-3"></div>
-                        <div class="step" id="step-4"><div class="step-circle">4</div><div class="step-label">Verify</div></div>
+                        <div class="step" id="step-4"><div class="step-circle"><i class="ph ph-cloud-arrow-up"></i></div><div class="step-label">Push</div></div>
+                        <div class="step-line" id="line-4"></div>
+                        <div class="step" id="step-5"><div class="step-circle"><i class="ph ph-flag-checkered"></i></div><div class="step-label">Finalize</div></div>
                     </div>
 
-                    <h3 style="margin-bottom: 12px; font-size: 16px; color: var(--text-main);">1. Map & Time Configuration</h3>
-                    
-                    <div class="form-row" style="margin-bottom: 16px;">
-                        <div class="input-group" style="margin-bottom: 0;">
-                            <label>Run Date (YYYYMMDD)</label>
-                            <input type="text" class="form-control" id="manDate" value="20260424">
+                    <div style="background: rgba(59,130,246,0.08); border: 1px solid rgba(59,130,246,0.25); border-radius: 12px; padding: 14px 16px; margin-bottom: 20px; font-size: 13px; color: var(--text-muted); line-height: 1.55;">
+                        <i class="ph ph-info" style="color: var(--accent-blue); font-size: 16px; vertical-align: -2px;"></i>
+                        <strong style="color: var(--text-main);">Manual = auto thu nhỏ.</strong>
+                        Cùng pipeline (discover → download → generate → push → finalize → cleanup local) cho cả 5 map. Chỉ khác:
+                        có thể giới hạn <code>max_fff</code> để chạy nhanh với vài frame đầu.
+                        Cycle GFS được tự dò trên NOAA.
+                    </div>
+
+                    <h3 style="margin-bottom: 16px; font-size: 16px; color: var(--text-main);">Cấu hình</h3>
+
+                    <div class="form-row" style="margin-bottom: 20px;">
+                        <div class="input-group" style="margin-bottom: 0; flex: 1;">
+                            <label>Max FFF (forecast hour)</label>
+                            <input type="number" class="form-control" id="manMaxFff" value="12" min="3" max="384"
+                                   title="Giới hạn forecast hour. Vd: 12 → chỉ f006/f009/f012 cho rain_basic. Để trống = full spec (như auto).">
                         </div>
-                        <div class="input-group" style="margin-bottom: 0;">
-                            <label>Run Hour (Z)</label>
-                            <select class="form-control" id="manHour">
-                                <option value="0">00Z</option><option value="6">06Z</option>
-                                <option value="12">12Z</option><option value="18">18Z</option>
-                            </select>
+                        <div class="input-group" style="margin-bottom: 0; width: 140px;">
+                            <label>&nbsp;</label>
+                            <label style="display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer; height: 46px;">
+                                <input type="checkbox" id="manFullSpec"> Full spec
+                            </label>
                         </div>
                     </div>
 
-                    <label style="display:block; font-size: 14px; color: var(--text-muted); margin-bottom: 8px; font-weight: 500;">Target Maps (Select multiple)</label>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 24px; background: rgba(0,0,0,0.2); padding: 12px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.05);">
-                        <label style="display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;"><input type="checkbox" value="temperature_feels_like" class="map-cb"> Temperature</label>
-                        <label style="display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;"><input type="checkbox" value="rain_basic" class="map-cb"> Rain Basic</label>
-                        <label style="display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;"><input type="checkbox" value="rain_advanced" class="map-cb" checked> Rain Adv</label>
-                        <label style="display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;"><input type="checkbox" value="snow_depth" class="map-cb"> Snow Depth</label>
-                        <label style="display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;"><input type="checkbox" value="wind_surface" class="map-cb" checked> Wind Surf</label>
-                    </div>
+                    <button class="btn btn-primary" id="btnRunPipeline" style="justify-content: center; width: 100%; padding: 14px;" onclick="runManualPipeline()">
+                        <i class="ph ph-play-circle" style="font-size: 20px;"></i>
+                        <span id="btnRunPipelineLabel">Run Pipeline (all maps)</span>
+                    </button>
 
-                    <h3 style="margin-bottom: 16px; font-size: 16px; color: var(--text-main); border-top: 1px dashed rgba(255,255,255,0.1); padding-top: 20px;">2. Execution Steps</h3>
-                    
-                    <div style="display: flex; flex-direction: column; gap: 10px;">
-                        <button class="btn btn-outline" style="justify-content: flex-start; padding: 12px 16px;" onclick="runManualStep(1)">
-                            <i class="ph ph-magnifying-glass" style="font-size: 20px; color: var(--accent-cyan);"></i> 1. Discover
-                        </button>
-                        
-                        <div style="display: flex; gap: 8px;">
-                            <button class="btn btn-outline" style="flex: 1; justify-content: flex-start; padding: 12px 16px;" onclick="runManualStep(2)">
-                                <i class="ph ph-download-simple" style="font-size: 20px; color: var(--accent-blue);"></i> 2. Download
-                            </button>
-                            <div class="input-group" style="margin-bottom: 0; width: 110px;">
-                                <input type="number" class="form-control" id="manMaxFff" value="48" style="height: 46px; font-weight: bold; padding: 0 12px;" title="Max FFF (Forecast Hours)">
-                            </div>
-                        </div>
-
-                        <button class="btn btn-outline" style="justify-content: flex-start; padding: 12px 16px;" onclick="runManualStep(3)">
-                            <i class="ph ph-stack" style="font-size: 20px; color: var(--accent-purple);"></i> 3. Generate
-                        </button>
-                        
-                        <button class="btn btn-outline" style="justify-content: flex-start; padding: 12px 16px;" onclick="runManualStep(4)" title="Kiểm tra tiles ở local disk. Chú ý: Auto mode xóa tiles sau khi xong!">
-                            <i class="ph ph-database-check" style="font-size: 20px; color: var(--accent-green);"></i> 4. Verify DB
-                        </button>
-                        
-                        <button class="btn btn-outline" style="justify-content: flex-start; padding: 12px 16px;" onclick="runManualStep(5)" title="Trỏ pointer _current.json trên Bunny vào Run ID này">
-                            <i class="ph ph-cloud-arrow-up" style="font-size: 20px; color: var(--accent-orange);"></i> 5. Finalize Bunny
-                        </button>
-                        
-                        <button class="btn btn-primary" style="justify-content: center; margin-top: 12px;" onclick="runManualJobFull()">
-                            <i class="ph ph-play-circle" style="font-size: 20px;"></i> Trigger Full Auto Job
-                        </button>
-                    </div>
+                    <div id="manPipelineSummary" class="mono" style="margin-top: 16px; padding-top: 16px; border-top: 1px dashed rgba(255,255,255,0.08); font-size: 12px; color: var(--text-muted); display:none;"></div>
                 </div>
 
                 <!-- Right: Observation Log -->
@@ -1187,6 +1215,12 @@
     </main>
 
     <div id="toast-container"></div>
+    <button type="button" onclick="promptAdminToken()" title="Set admin token (X-Admin-Token)"
+            style="position: fixed; bottom: 32px; left: 32px; z-index: 1001; background: rgba(0,0,0,0.6); color: #fff;
+                   border: 1px solid rgba(255,255,255,0.15); border-radius: 999px; padding: 8px 14px; font-size: 12px;
+                   cursor: pointer;">
+        <i class="ph ph-key"></i> Admin token
+    </button>
 
     <script>
         // Navigation
@@ -1226,13 +1260,64 @@
             setTimeout(() => { toast.style.opacity = '0'; toast.style.transform = 'translateX(100%)'; setTimeout(() => toast.remove(), 300); }, 3000);
         }
 
-        async function apiCall(url, options={}) {
+        // ─── Admin token helpers ─────────────────────────────────────
+        // Stored locally in the browser. The server reads X-Admin-Token.
+        function getAdminToken() {
+            try { return localStorage.getItem('admin_token') || ''; }
+            catch (_e) { return ''; }
+        }
+        function setAdminToken(tok) {
             try {
-                const res = await fetch(url, options);
-                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                if (tok) localStorage.setItem('admin_token', tok);
+                else localStorage.removeItem('admin_token');
+            } catch (_e) {}
+        }
+        function promptAdminToken() {
+            const cur = getAdminToken();
+            const v = window.prompt('Admin token (X-Admin-Token). Leave blank to clear.', cur);
+            if (v === null) return;
+            setAdminToken(v.trim());
+            showToast('Admin token đã cập nhật.', 'success');
+        }
+        // Escape a value for safe use inside an HTML attribute delimited by
+        // single OR double quotes — used by the storage-table onclick handlers.
+        function escapeAttr(v) {
+            if (v == null) return '';
+            return String(v)
+                .replace(/&/g, '&amp;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+        }
+        // Build a query string that includes the admin token (for EventSource
+        // and `<a>` link targets that can't send custom headers).
+        function withTokenQuery(url) {
+            const tok = getAdminToken();
+            if (!tok) return url;
+            const sep = url.includes('?') ? '&' : '?';
+            return `${url}${sep}admin_token=${encodeURIComponent(tok)}`;
+        }
+
+        async function apiCall(url, options={}) {
+            const tok = getAdminToken();
+            const headers = Object.assign({}, options.headers || {});
+            if (tok) headers['X-Admin-Token'] = tok;
+            try {
+                const res = await fetch(url, Object.assign({}, options, { headers }));
+                if (res.status === 401) {
+                    showToast('401: thiếu/sai admin token. Bấm 🔑 để nhập.', 'error');
+                    throw new Error('Unauthorized');
+                }
+                if (!res.ok) {
+                    let detail = '';
+                    try { const j = await res.json(); detail = j.detail || ''; } catch(_) {}
+                    showToast(`Lỗi ${res.status}: ${detail || res.statusText}`, 'error');
+                    throw new Error(`HTTP ${res.status}`);
+                }
                 return await res.json();
             } catch (err) {
-                console.error("API Call Failed:", err);
+                console.error("API Call Failed:", url, err);
                 return null;
             }
         }
@@ -1251,11 +1336,16 @@
             logEl.scrollTop = logEl.scrollHeight;
         }
 
+        // Manual pipeline now has 5 steps (Discover → Download → Generate → Push → Finalize)
+        const MAN_PIPELINE_STEPS = 5;
+
         function updateStepUI(step, state) {
             if (state === 'reset') {
-                for(let i=1; i<=4; i++) {
+                for(let i=1; i<=MAN_PIPELINE_STEPS; i++) {
                     document.getElementById(`step-${i}`)?.classList.remove('active', 'done');
-                    document.getElementById(`line-${i}`)?.classList.remove('done');
+                    if (i < MAN_PIPELINE_STEPS) {
+                        document.getElementById(`line-${i}`)?.classList.remove('done');
+                    }
                 }
                 return;
             }
@@ -1269,129 +1359,165 @@
             }
         }
 
-        async function runManualStep(step) {
-            const mapTypes = Array.from(document.querySelectorAll('.map-cb:checked')).map(cb => cb.value);
-            if (mapTypes.length === 0) return appendManualLog('Error: Please select at least one Map Type.', 'error');
-            
-            const dateStr = document.getElementById('manDate').value;
-            const hour = parseInt(document.getElementById('manHour').value);
-            const maxFff = parseInt(document.getElementById('manMaxFff').value);
-            const runId = `${dateStr}_${hour.toString().padStart(2, '0')}z`;
-
-            appendManualLog(`----------------------------------------`, 'info');
-            appendManualLog(`Executing Step ${step} for ${mapTypes.length} map type(s)...`, 'blue');
-            
-            updateStepUI(step, 'active');
-            const startTime = performance.now();
-
-            const promises = mapTypes.map(async (mapType) => {
-                try {
-                    if (step === 1) {
-                        const res = await apiCall('/api/v1/admin/trigger-discover', {
-                            method: 'POST', headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify({ run_date: dateStr, run_hour: hour, max_fff: maxFff })
-                        });
-                        if (res && res.status === 'ok') appendManualLog(`[${mapType}] Discovered ${res.result?.total_fff_found || '?'} frames.`, 'success');
-                        else throw new Error();
-                    } 
-                    else if (step === 2) {
-                        const res = await apiCall('/api/v1/admin/trigger-download', {
-                            method: 'POST', headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify({ map_type: mapType, run_date: dateStr, run_hour: hour, max_fff: maxFff })
-                        });
-                        if (res && res.queued) {
-                            appendManualLog(`[${mapType}] Download Queued. Waiting...`, 'info');
-                            await pollJobForManualLog(mapType, "Downloading");
-                        }
-                        else if (res && res.status === 'sufficient') appendManualLog(`[${mapType}] Skipped: ${res.message}`, 'success');
-                        else if (res && res.status === 'error') throw new Error(res.message || 'Unknown error');
-                        else throw new Error(res ? JSON.stringify(res) : 'No response');
-                    }
-                    else if (step === 3) {
-                        const res = await apiCall('/api/v1/admin/trigger-generate-tiles', {
-                            method: 'POST', headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify({ map_type: mapType, run_id: runId })
-                        });
-                        if (res && res.queued) {
-                            appendManualLog(`[${mapType}] Generation Queued. Waiting...`, 'info');
-                            await pollJobForManualLog(mapType, "Generating");
-                        }
-                        else throw new Error();
-                    }
-                    else if (step === 4) {
-                        const res = await apiCall(`/api/v1/admin/check-missing-tiles?map_type=${mapType}&run_id=${runId}`);
-                        if (res && res.total_tiles_expected !== undefined) {
-                            const statusMsg = res.all_complete ? 'Complete ✓' : `Missing ${res.total_tiles_missing} ✗`;
-                            const msgType = res.all_complete ? 'success' : 'warn';
-                            appendManualLog(`[${mapType}] Expected: ${res.total_tiles_expected} | Existing: ${res.total_tiles_existing} | Status: ${statusMsg}`, msgType);
-                        } else throw new Error();
-                    }
-                    else if (step === 5) {
-                        const res = await apiCall(`/api/v1/admin/finalize-bunny/${mapType}/${runId}`, { method: 'POST' });
-                        if (res && res.pointer_ok) appendManualLog(`[${mapType}] Finalized on Bunny! Pointer moved.`, 'success');
-                        else throw new Error(res ? 'Failed to finalize' : 'Unknown error');
-                    }
-                } catch (err) {
-                    const detail = err.message ? ` — ${err.message}` : '';
-                    appendManualLog(`[${mapType}] Failed at Step ${step}${detail}`, 'error');
-                }
-            });
-
-            await Promise.all(promises);
-            
-            const elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
-            updateStepUI(step, 'done');
-            appendManualLog(`Step ${step} completed in ${elapsed}s.`, 'success');
+        // Map a progress_tracker.step string (server-side) → 1..5 pipeline step.
+        function mapStepToPipelineNum(step) {
+            if (!step) return 0;
+            const s = String(step).toLowerCase();
+            if (s.includes('checking') || s.includes('discover')) return 1;
+            if (s.includes('download')) return 2;
+            if (s.includes('generat') || s.includes('classifying') ||
+                s.includes('cutting') || s.includes('staging') ||
+                s.includes('warping')) return 3;
+            if (s.includes('push') || s.includes('upload') || s.includes('swapping') ||
+                s.includes('bunny')) return 4;
+            if (s === 'done' || s.includes('finaliz') || s.includes('cleanup')) return 5;
+            return 0;
         }
 
-        async function pollJobForManualLog(mapType, prefix) {
-            let lastFrames = -1;
-            while (true) {
-                await new Promise(r => setTimeout(r, 2000));
-                try {
-                    const jobs = await apiCall('/api/v1/admin/jobs');
-                    if (jobs && jobs[mapType]) {
-                        const job = jobs[mapType];
-                        if (job.status === 'running') {
-                            if (job.frames_total > 0 && job.frames_done !== lastFrames) {
-                                appendManualLog(`[${mapType}] ${prefix}: ${job.frames_done}/${job.frames_total} frames.`, 'info');
-                                lastFrames = job.frames_done;
-                            }
-                        } else if (job.status === 'ok') {
-                            appendManualLog(`[${mapType}] ${prefix} Completed.`, 'success');
-                            return;
-                        } else if (job.status === 'cancelled') {
-                            appendManualLog(`[${mapType}] ⚠ Job was cancelled by user.`, 'warn');
-                            return;
-                        } else if (job.status === 'error') {
-                            appendManualLog(`[${mapType}] Error: ${job.last_error}`, 'error');
-                            return;
-                        } else {
-                            // Any other terminal status — stop polling
-                            appendManualLog(`[${mapType}] Job ended with status: ${job.status}`, 'warn');
-                            return;
-                        }
-                    } else {
-                        return; // Job disappeared
-                    }
-                } catch(e) {}
+        // ─── Manual pipeline = auto pipeline (all maps), optionally clamped by max_fff ───
+        let _manRunning = false;
+        let _manPollTimer = null;
+
+        async function runManualPipeline() {
+            if (_manRunning) {
+                appendManualLog('Pipeline đã đang chạy — chờ hoàn tất hoặc reload trang.', 'warn');
+                return;
             }
-        }
+            const useFullSpec = document.getElementById('manFullSpec').checked;
+            const rawMax = parseInt(document.getElementById('manMaxFff').value);
+            const maxFff = (useFullSpec || !rawMax || rawMax <= 0) ? null : rawMax;
 
-        async function runManualJobFull() {
-            const mapTypes = Array.from(document.querySelectorAll('.map-cb:checked')).map(cb => cb.value);
-            if (mapTypes.length === 0) return appendManualLog('Error: Please select at least one Map Type.', 'error');
-            
-            appendManualLog(`----------------------------------------`, 'info');
-            appendManualLog(`Triggering Full Auto Job for ${mapTypes.length} map type(s)...`, 'blue');
-            updateStepUI(1, 'reset');
-            
-            const promises = mapTypes.map(async (mapType) => {
-                const res = await apiCall(`/api/v1/admin/trigger-job/${mapType}`, { method: 'POST' });
-                if (res && res.queued) appendManualLog(`[${mapType}] Full Job Queued!`, 'success');
-                else appendManualLog(`[${mapType}] Failed to trigger job.`, 'error');
-            });
-            await Promise.all(promises);
+            const qs = maxFff != null ? `?max_fff=${maxFff}` : '';
+            appendManualLog('----------------------------------------', 'info');
+            appendManualLog(
+                `Run Pipeline (all maps)  ${maxFff != null ? `· max_fff=${maxFff}` : '· full spec (= auto)'}`,
+                'blue',
+            );
+
+            updateStepUI(0, 'reset');
+            _manRunning = true;
+            const btn = document.getElementById('btnRunPipeline');
+            btn.disabled = true;
+            btn.style.opacity = '0.6';
+            const summary = document.getElementById('manPipelineSummary');
+            summary.style.display = 'block';
+            summary.innerText = 'Đang queue jobs…';
+
+            let res;
+            try {
+                res = await apiCall(`/api/v1/admin/trigger-job-all${qs}`, { method: 'POST' });
+            } catch (e) {
+                appendManualLog('Queue failed: ' + e.message, 'error');
+                _manRunning = false; btn.disabled = false; btn.style.opacity = '1';
+                return;
+            }
+            if (!res || !res.queued) {
+                appendManualLog('Queue failed: ' + JSON.stringify(res), 'error');
+                _manRunning = false; btn.disabled = false; btn.style.opacity = '1';
+                return;
+            }
+
+            const targets = res.map_types || [];
+            appendManualLog(`Queued ${targets.length} maps: ${targets.join(', ')}`, 'success');
+            appendManualLog(res.note || '', 'info');
+
+            // Track last seen step per map so we don't spam log
+            const lastStepLogged = {};
+            const lastFramesLogged = {};
+            const startTs = Date.now();
+
+            function poll() {
+                apiCall('/api/v1/admin/jobs').then(jobs => {
+                    if (!jobs) return;
+
+                    let minStep = MAN_PIPELINE_STEPS + 1;
+                    let maxStep = 0;
+                    let allDone = true;
+                    let anyError = false;
+                    const perMap = [];
+
+                    for (const mt of targets) {
+                        const j = jobs[mt] || {};
+                        const stepNum = mapStepToPipelineNum(j.step);
+                        const stat = j.status || 'idle';
+                        perMap.push({ mt, stat, step: j.step || '', stepNum,
+                                       fd: j.frames_done || 0, ft: j.frames_total || 0 });
+
+                        if (stat === 'running' || stat === 'idle') {
+                            allDone = false;
+                            if (stepNum > 0) {
+                                minStep = Math.min(minStep, stepNum);
+                                maxStep = Math.max(maxStep, stepNum);
+                            }
+                        } else if (stat === 'ok') {
+                            maxStep = Math.max(maxStep, MAN_PIPELINE_STEPS);
+                        } else if (stat === 'error' || stat === 'cancelled') {
+                            anyError = true;
+                            maxStep = Math.max(maxStep, stepNum);
+                        }
+
+                        // Log step transition per map
+                        if (lastStepLogged[mt] !== j.step && j.step) {
+                            appendManualLog(`[${mt}] → ${j.step}: ${j.step_detail || ''}`, 'info');
+                            lastStepLogged[mt] = j.step;
+                        }
+                        if (j.frames_total > 0 && j.frames_done !== lastFramesLogged[mt]) {
+                            lastFramesLogged[mt] = j.frames_done;
+                        }
+                    }
+
+                    // Aggregate step UI: light up everything ≤ minStep as "done if all maps past it"
+                    // Simpler: any step that ALL maps have reached → done; smallest current step → active.
+                    updateStepUI(0, 'reset');
+                    // Compute per-step status across all maps
+                    for (let s = 1; s <= MAN_PIPELINE_STEPS; s++) {
+                        const allReached = perMap.every(p =>
+                            p.stat === 'ok' || p.stat === 'error' || p.stepNum > s ||
+                            (p.stat === 'cancelled')
+                        );
+                        const anyAt = perMap.some(p => p.stepNum === s && (p.stat === 'running' || p.stat === 'idle'));
+                        if (allReached) updateStepUI(s, 'done');
+                        else if (anyAt) updateStepUI(s, 'active');
+                    }
+
+                    // Summary line
+                    const okN = perMap.filter(p => p.stat === 'ok').length;
+                    const runN = perMap.filter(p => p.stat === 'running').length;
+                    const errN = perMap.filter(p => p.stat === 'error').length;
+                    const elapsed = Math.floor((Date.now() - startTs) / 1000);
+                    summary.innerHTML =
+                        `<div>elapsed ${elapsed}s  •  ok ${okN}  •  running ${runN}  •  error ${errN}</div>` +
+                        '<div style="margin-top:8px;display:grid;grid-template-columns:160px 1fr;gap:2px 12px;">' +
+                        perMap.map(p => {
+                            const c = p.stat === 'ok' ? 'var(--accent-green)'
+                                    : p.stat === 'error' ? 'var(--accent-red)'
+                                    : p.stat === 'cancelled' ? '#facc15'
+                                    : p.stat === 'running' ? 'var(--accent-blue)'
+                                    : 'var(--text-muted)';
+                            const frames = p.ft ? ` ${p.fd}/${p.ft}` : '';
+                            return `<div style="color:${c};">${p.mt}</div>` +
+                                   `<div style="color:var(--text-muted);">${p.stat}${frames} — ${p.step || '—'}</div>`;
+                        }).join('') + '</div>';
+
+                    if (allDone) {
+                        clearTimeout(_manPollTimer);
+                        _manRunning = false;
+                        btn.disabled = false;
+                        btn.style.opacity = '1';
+                        const total = Math.floor((Date.now() - startTs) / 1000);
+                        if (anyError) {
+                            appendManualLog(`Pipeline kết thúc với lỗi (${errN} map) sau ${total}s.`, 'error');
+                        } else {
+                            appendManualLog(`Pipeline hoàn tất ✓ ${okN}/${targets.length} maps sau ${total}s.`, 'success');
+                        }
+                        return;
+                    }
+                    _manPollTimer = setTimeout(poll, 2000);
+                }).catch(() => {
+                    _manPollTimer = setTimeout(poll, 3000);
+                });
+            }
+            poll();
         }
 
         // Cycle Monitor (REAL)
@@ -1552,7 +1678,7 @@
                             <div style="font-size: 16px; font-weight: 600; color: var(--text-main);"><i class="ph ph-folder" style="color: var(--accent-blue); margin-right: 8px;"></i> ${mapType}</div>
                             <div style="font-size: 14px; font-weight: 700; color: var(--accent-cyan); display: flex; align-items: center; gap: 16px;">
                                 ${formatBytes(mtData.total_bytes)}
-                                <button class="btn btn-outline" id="btn-delete-all-${mapType}" style="padding: 4px 8px; font-size: 12px; color: var(--accent-red); border-color: rgba(239, 68, 68, 0.2);" onclick="deleteStorageRun('${mapType}', null)">
+                                <button class="btn btn-outline" id="btn-delete-all-${mapType}" style="padding: 4px 8px; font-size: 12px; color: var(--accent-red); border-color: rgba(239, 68, 68, 0.2);" onclick="deleteStorageRun('${escapeAttr(mapType)}', null)">
                                     <i class="ph ph-trash"></i> Delete All
                                 </button>
                             </div>
@@ -1590,7 +1716,7 @@
                                             <td style="padding: 12px 4px;">${formatBytes(run.tiles_bytes)} <span style="color:var(--text-muted); font-size: 12px;">(${run.tiles_files} f)</span></td>
                                             <td style="padding: 12px 4px; color: var(--accent-green);">${formatBytes(run.staging_bytes)} <span style="color:var(--text-muted); font-size: 12px;">(${run.staging_files} f)</span></td>
                                             <td style="padding: 12px 4px; text-align: right;">
-                                                <button class="btn btn-outline" id="btn-delete-${mapType}-${runId}" style="width: auto; padding: 4px 10px; font-size: 12px; color: var(--accent-red); border-color: rgba(239, 68, 68, 0.2);" onclick="deleteStorageRun('${mapType}', '${runId}')">
+                                                <button class="btn btn-outline" id="btn-delete-${mapType}-${runId}" style="width: auto; padding: 4px 10px; font-size: 12px; color: var(--accent-red); border-color: rgba(239, 68, 68, 0.2);" onclick="deleteStorageRun('${escapeAttr(mapType)}', '${escapeAttr(runId)}')">
                                                     <i class="ph ph-trash"></i> Clean
                                                 </button>
                                             </td>
@@ -1771,6 +1897,75 @@
             }
         }
 
+
+        // ── Auto Scheduler control ──────────────────────────────────────────
+        async function fetchSchedulerInfo() {
+            try {
+                const data = await apiCall('/api/v1/admin/scheduler');
+                if (!data) return;
+                renderSchedulerInfo(data);
+            } catch (e) {
+                console.warn('fetchSchedulerInfo failed', e);
+            }
+        }
+
+        function renderSchedulerInfo(info) {
+            const toggle = document.getElementById('schedToggle');
+            const badge  = document.getElementById('schedStateBadge');
+            const summary= document.getElementById('schedSummary');
+            const jobsEl = document.getElementById('schedJobsList');
+            if (!toggle) return;
+
+            toggle.checked = !!info.enabled;
+            const running = !!info.running;
+            const enabled = !!info.enabled;
+            let label, bg, fg, br;
+            if (enabled && running)        { label = 'ON • RUNNING';  bg='rgba(16,185,129,0.15)'; fg='var(--accent-green)'; br='rgba(16,185,129,0.3)'; }
+            else if (enabled && !running)  { label = 'ON • STARTING'; bg='rgba(250,204,21,0.15)'; fg='#facc15';             br='rgba(250,204,21,0.3)'; }
+            else                           { label = 'OFF';           bg='rgba(239,68,68,0.15)';  fg='var(--accent-red)';   br='rgba(239,68,68,0.3)'; }
+            badge.innerText = label;
+            badge.style.background = bg;
+            badge.style.color = fg;
+            badge.style.border = `1px solid ${br}`;
+
+            const slots = info.active_slots == null ? '?' : info.active_slots;
+            summary.innerText =
+                `Cron fires: ${info.cycle_fire_hours_utc || '—'} UTC  •  ` +
+                `stagger ${info.stagger_minutes || 0}min  •  ` +
+                `concurrency ${slots}/${info.concurrency_limit}`;
+
+            const jobs = info.jobs || [];
+            if (running && jobs.length) {
+                let html = '<div style="display:grid; grid-template-columns: minmax(200px, 1fr) auto; gap: 4px 16px;">';
+                jobs.forEach(j => {
+                    const next = j.next_run ? new Date(j.next_run).toUTCString().replace('GMT','UTC') : '—';
+                    html += `<div style="color: var(--text-main);">${j.name || j.id}</div>`;
+                    html += `<div>${next}</div>`;
+                });
+                html += '</div>';
+                jobsEl.innerHTML = html;
+                jobsEl.style.display = 'block';
+            } else {
+                jobsEl.style.display = 'none';
+            }
+        }
+
+        async function toggleScheduler(checked) {
+            const endpoint = checked ? '/api/v1/admin/scheduler/enable'
+                                     : '/api/v1/admin/scheduler/disable';
+            const toggle = document.getElementById('schedToggle');
+            toggle.disabled = true;
+            try {
+                const data = await apiCall(endpoint, { method: 'POST' });
+                if (data) renderSchedulerInfo(data);
+            } catch (e) {
+                console.error('toggleScheduler failed', e);
+                // revert UI on failure
+                toggle.checked = !checked;
+            } finally {
+                toggle.disabled = false;
+            }
+        }
 
         // Benchmark Mode (REAL)
         let isBenchmarkRunning = false;
@@ -2187,7 +2382,7 @@
 
         function _connectSSE() {
             try {
-                _sse = new EventSource('/api/v1/admin/stream');
+                _sse = new EventSource(withTokenQuery('/api/v1/admin/stream'));
             } catch (e) {
                 console.error('SSE init failed:', e);
                 _scheduleSSEReconnect();
@@ -2636,6 +2831,8 @@
 
         pollBenchmarkStatus();
         loadStorageStats();
+        fetchSchedulerInfo();
+        setInterval(fetchSchedulerInfo, 30000);
     </script>
 </body>
 </html>

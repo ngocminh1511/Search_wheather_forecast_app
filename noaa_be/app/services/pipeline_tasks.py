@@ -294,6 +294,31 @@ def publish_staging_to_live(map_type: str, run_id: str):
 
     # ── Bunny mode: STAGING is ephemeral, Bunny is canonical ──────────────
     if cfg.BUNNY_ENABLED:
+        # Per-frame push happened during cut. Before deleting STAGING, verify
+        # that the orchestrator's push metrics show no per-frame failures —
+        # otherwise STAGING is the only remaining copy of those chunks and
+        # deleting it now would silently drop tiles.
+        try:
+            from .pipeline_orchestrator import get_orchestrator
+            push_m = get_orchestrator().get_push_metrics(map_type, run_id)
+            failed = int(push_m.get("failed", 0) or 0)
+            if failed > 0:
+                raise RuntimeError(
+                    f"publish_staging_to_live: refusing to clean STAGING for "
+                    f"{map_type}/{run_id} — {failed} chunk push(es) failed; "
+                    f"retry will repush from STAGING."
+                )
+        except RuntimeError:
+            raise
+        except Exception as exc:
+            # If we can't read metrics for whatever reason, fall through to the
+            # original behavior but log loudly.
+            log.warning(
+                "publish_staging_to_live: push metrics unavailable for %s/%s "
+                "(%s); proceeding with cleanup",
+                map_type, run_id, exc,
+            )
+
         # Per-frame push happened during cut. STAGING residuals (e.g. interp
         # sub-frames pushed separately by scheduler) may still exist; remove.
         # NO LIVE local — Bunny is the only canonical store.

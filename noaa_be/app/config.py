@@ -133,11 +133,19 @@ class Settings:
         # ── Server ─────────────────────────────────────────────────────────
         self.HOST: str = os.getenv("HOST", "0.0.0.0")
         self.PORT: int = int(os.getenv("PORT", "8000"))
+        # CORS_ORIGINS: comma-separated. Defaults to localhost-only for safer
+        # internal deploy; override via env (e.g. "http://10.0.0.5:5173,http://lan-host:8001").
         self.CORS_ORIGINS: list[str] = [
             o.strip()
-            for o in os.getenv("CORS_ORIGINS", "*").split(",")
+            for o in os.getenv(
+                "CORS_ORIGINS",
+                "http://localhost:8001,http://127.0.0.1:8001",
+            ).split(",")
             if o.strip()
         ]
+        # Admin endpoint token. Empty disables auth (dev only). For any deploy
+        # outside localhost set this to a long random string.
+        self.ADMIN_API_TOKEN: str = os.getenv("ADMIN_API_TOKEN", "")
         self.API_VERSION: str = "v1"
         self.APP_VERSION: str = "1.0.0"
 
@@ -193,6 +201,13 @@ class Settings:
         # After atomic switch, delete previous run from Bunny immediately.
         self.BUNNY_DELETE_PREV_AFTER_SWITCH: bool = bool(
             int(os.getenv("BUNNY_DELETE_PREV_AFTER_SWITCH", "1"))
+        )
+        # Debug knob: when Bunny is canonical we wipe local DATA/TILES/STAGING/
+        # JSON_GRIDS/AVAILABLE for the finalized run to save disk. Set this to
+        # 1 to keep them around for manual inspection. Disk will grow over
+        # time, so use only for debugging — leave =0 in steady-state.
+        self.BUNNY_KEEP_LOCAL_AFTER_FINALIZE: bool = bool(
+            int(os.getenv("BUNNY_KEEP_LOCAL_AFTER_FINALIZE", "0"))
         )
 
         # ── Telegram bot reporting ────────────────────────────────────────
