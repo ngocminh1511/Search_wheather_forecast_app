@@ -2,6 +2,7 @@ import asyncio
 import logging
 import time
 from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
 from pathlib import Path
 from typing import Dict, Any, List
 
@@ -224,6 +225,41 @@ class PipelineOrchestrator:
         while not check_resources(stage):
             await asyncio.sleep(5.0)
 
+    def _rebuild_pool_if_broken(self, stage: str, exc: BaseException) -> bool:
+        """If `exc` is a BrokenProcessPool for `stage`, replace the pool so the
+        next job can run. Returns True if a rebuild happened.
+
+        Without this, one worker crash (e.g. import error, OOM) bricks the
+        pool and every subsequent submit raises BrokenProcessPool indefinitely.
+        """
+        if not isinstance(exc, BrokenProcessPool):
+            return False
+        if stage == "parse":
+            log.warning("parse_pool is broken — rebuilding (%s)", exc)
+            try:
+                self.parse_pool.shutdown(wait=False, cancel_futures=True)
+            except Exception:
+                pass
+            self.parse_pool = ProcessPoolExecutor(max_workers=self.cfg.MAX_PARSE_WORKERS)
+            return True
+        if stage == "build":
+            log.warning("build_pool is broken — rebuilding (%s)", exc)
+            try:
+                self.build_pool.shutdown(wait=False, cancel_futures=True)
+            except Exception:
+                pass
+            self.build_pool = ProcessPoolExecutor(max_workers=self.cfg.MAX_BUILD_WORKERS)
+            return True
+        if stage == "cut":
+            log.warning("cut_pool is broken — rebuilding (%s)", exc)
+            try:
+                self.cut_pool.shutdown(wait=False, cancel_futures=True)
+            except Exception:
+                pass
+            self.cut_pool = ProcessPoolExecutor(max_workers=self.cfg.MAX_CUT_WORKERS)
+            return True
+        return False
+
     # ------------------------------------------------------------------
     # PARSE worker — also handles custom map types directly
     # ------------------------------------------------------------------
@@ -346,6 +382,7 @@ class PipelineOrchestrator:
                 upsert_pipeline_job(
                     job["id"], job["map_type"], job["run_id"], job["fff"], job["product"], "ERROR", str(e)
                 )
+                self._rebuild_pool_if_broken("parse", e)
             finally:
                 self.parse_queue.task_done()
 
@@ -391,6 +428,7 @@ class PipelineOrchestrator:
                 upsert_pipeline_job(
                     job["id"], job["map_type"], job["run_id"], job["fff"], job["product"], "ERROR", str(e)
                 )
+                self._rebuild_pool_if_broken("build", e)
             finally:
                 self.build_queue.task_done()
 
@@ -494,6 +532,7 @@ class PipelineOrchestrator:
                 upsert_pipeline_job(
                     job["id"], job["map_type"], job["run_id"], job["fff"], job["product"], "ERROR", str(e)
                 )
+                self._rebuild_pool_if_broken("cut", e)
             finally:
                 if npy_path:
                     try:
