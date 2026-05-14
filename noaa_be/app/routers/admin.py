@@ -82,6 +82,18 @@ def get_logs(since: int = Query(default=0), limit: int = Query(default=200)) -> 
 # Manual job trigger
 # ---------------------------------------------------------------------------
 
+def _validate_run_id_or_400(run_id: Optional[str]) -> Optional[str]:
+    """Reject malformed run_id early. Empty/None → returns None (auto-discover)."""
+    if not run_id:
+        return None
+    from ..services.availability_service import parse_run_id
+    try:
+        parse_run_id(run_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid run_id: {exc}")
+    return run_id
+
+
 @router.post("/trigger-job/{map_type}")
 def trigger_map_job(
     map_type: str,
@@ -90,6 +102,11 @@ def trigger_map_job(
         default=None,
         description="Clamp spec fff list to f ≤ max_fff. None = full auto spec.",
     ),
+    run_id: Optional[str] = Query(
+        default=None,
+        description="Manual override of GFS cycle (format YYYYMMDD_HHz, e.g. 20260514_00z). "
+                    "If omitted, auto-discover the latest cycle on NOAA.",
+    ),
 ) -> dict:
     """Fire the scheduler job for one map_type immediately in background."""
     from ..core.pipeline_adapter import get_map_specs
@@ -97,8 +114,9 @@ def trigger_map_job(
     if map_type not in specs:
         raise HTTPException(
             status_code=404, detail=f"Unknown map_type: {map_type!r}")
-    background_tasks.add_task(trigger_job, map_type, max_fff)
-    return {"queued": True, "map_type": map_type, "max_fff": max_fff}
+    rid = _validate_run_id_or_400(run_id)
+    background_tasks.add_task(trigger_job, map_type, max_fff, rid)
+    return {"queued": True, "map_type": map_type, "max_fff": max_fff, "run_id": rid}
 
 
 @router.post("/trigger-job-all")
@@ -109,21 +127,28 @@ def trigger_all_jobs(
         description="Clamp spec fff list to f ≤ max_fff for ALL maps. "
                     "None = full auto spec (same as scheduler cron fire).",
     ),
+    run_id: Optional[str] = Query(
+        default=None,
+        description="Manual override of GFS cycle for all maps (YYYYMMDD_HHz). "
+                    "Omit to auto-discover latest cycle per map.",
+    ),
 ) -> dict:
     """Fire the full auto pipeline for ALL maps. Same code path as scheduler.
 
     This is the "Run Pipeline" button in the manual admin UI — identical to
-    auto except you can pass `max_fff` to test with a smaller frame set.
+    auto except you can pass `max_fff` and/or `run_id`.
     Goes through the concurrency-throttled wrapper so behaviour matches auto.
     """
     from ..core.pipeline_adapter import get_map_specs
     specs = get_map_specs()
+    rid = _validate_run_id_or_400(run_id)
     for mt in specs:
-        background_tasks.add_task(trigger_job, mt, max_fff)
+        background_tasks.add_task(trigger_job, mt, max_fff, rid)
     return {
         "queued": True,
         "map_types": list(specs.keys()),
         "max_fff": max_fff,
+        "run_id": rid,
         "note": (
             "Same pipeline as auto. Concurrency cap applies — maps will run "
             "in batches of SCHEDULER_CONCURRENCY (default 2)."

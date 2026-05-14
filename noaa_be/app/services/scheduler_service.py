@@ -166,20 +166,32 @@ def _cleanup_local_after_bunny_finalize(map_type: str, run_id: str, cfg: Any) ->
 # Concurrency throttle
 # ---------------------------------------------------------------------------
 
-def _job_for_map_type_throttled(map_type: str, max_fff_override: int | None = None) -> None:
+def _job_for_map_type_throttled(
+    map_type: str,
+    max_fff_override: int | None = None,
+    run_id_override: str | None = None,
+) -> None:
     """Direct wrapper kept for APScheduler compatibility.
 
     The pool (`_job_executor`) already bounds concurrency at `_CONCURRENCY_LIMIT`
     and preserves FIFO submit order — no semaphore needed here.
     """
-    _job_for_map_type(map_type, max_fff_override=max_fff_override)
+    _job_for_map_type(
+        map_type,
+        max_fff_override=max_fff_override,
+        run_id_override=run_id_override,
+    )
 
 
 # ---------------------------------------------------------------------------
 # Individual map-type job
 # ---------------------------------------------------------------------------
 
-def _job_for_map_type(map_type: str, max_fff_override: int | None = None) -> None:
+def _job_for_map_type(
+    map_type: str,
+    max_fff_override: int | None = None,
+    run_id_override: str | None = None,
+) -> None:
     # Guard: skip if this map_type is locked for deletion
     try:
         from ..services.delete_service import is_map_locked
@@ -235,7 +247,11 @@ def _job_for_map_type(map_type: str, max_fff_override: int | None = None) -> Non
         started_at=now.isoformat(),
     )
     try:
-        _run_map_job(map_type, max_fff_override=max_fff_override)
+        _run_map_job(
+            map_type,
+            max_fff_override=max_fff_override,
+            run_id_override=run_id_override,
+        )
         status = db_get_job_status(map_type)
         status["status"] = "ok"
         status["last_success"] = datetime.now(tz=timezone.utc).isoformat()
@@ -411,8 +427,13 @@ def _hardlink_cold_output(map_type: str, run_id: str, cold_covered: set[int], cf
     return linked
 
 
-def _run_map_job(map_type: str, max_fff_override: int | None = None) -> None:
+def _run_map_job(
+    map_type: str,
+    max_fff_override: int | None = None,
+    run_id_override: str | None = None,
+) -> None:
     from ..services import progress_tracker
+    from ..services.availability_service import parse_run_id
 
     cfg = get_settings()
 
@@ -432,16 +453,36 @@ def _run_map_job(map_type: str, max_fff_override: int | None = None) -> None:
     #    stale cycle from the on-disk availability files whose data has already been
     #    purged from NOAA (causing 404 on every download attempt).
     max_fff = _spec_max_fff(map_type)
-    progress_tracker.update(map_type, step="checking",
-                            step_detail="Tìm chu kỳ GFS mới nhất trên NOAA…")
-    probe_date, probe_hour = find_latest_accessible_cycle(max_fff)
-    if probe_date is None:
-        # NOAA unreachable — fall back to the latest we have on disk
-        probe_date, probe_hour = latest_available_run(cfg.AVAILABLE_DIR)
-    if probe_date is None or probe_hour is None:
-        utc_now = datetime.now(tz=timezone.utc)
-        probe_date = utc_now.date()
-        probe_hour = (utc_now.hour // 6) * 6
+    if run_id_override:
+        # Manual override path — caller specified an exact cycle. Validate
+        # format (`YYYYMMDD_HHz`) and skip NOAA cycle probing entirely.
+        try:
+            date_str, run_hour = parse_run_id(run_id_override)
+        except ValueError as exc:
+            raise ValueError(
+                f"Invalid run_id_override {run_id_override!r}: {exc}"
+            )
+        from datetime import date as _date
+        probe_date = _date(
+            int(date_str[:4]), int(date_str[4:6]), int(date_str[6:8])
+        )
+        probe_hour = run_hour
+        progress_tracker.update(
+            map_type, step="checking",
+            step_detail=f"Manual run_id={run_id_override} (bỏ qua auto-discover)",
+        )
+        log.info("Manual override: %s using run_id=%s", map_type, run_id_override)
+    else:
+        progress_tracker.update(map_type, step="checking",
+                                step_detail="Tìm chu kỳ GFS mới nhất trên NOAA…")
+        probe_date, probe_hour = find_latest_accessible_cycle(max_fff)
+        if probe_date is None:
+            # NOAA unreachable — fall back to the latest we have on disk
+            probe_date, probe_hour = latest_available_run(cfg.AVAILABLE_DIR)
+        if probe_date is None or probe_hour is None:
+            utc_now = datetime.now(tz=timezone.utc)
+            probe_date = utc_now.date()
+            probe_hour = (utc_now.hour // 6) * 6
 
     run_id = run_id_from_date(probe_date, probe_hour)
     progress_tracker.update(map_type, run_id=run_id)
@@ -1310,7 +1351,11 @@ def get_scheduler_info() -> dict:
     }
 
 
-def trigger_job(map_type: str, max_fff_override: int | None = None) -> None:
+def trigger_job(
+    map_type: str,
+    max_fff_override: int | None = None,
+    run_id_override: str | None = None,
+) -> None:
     """Submit a map job to the shared FIFO executor (admin endpoint + cron helper).
 
     Calls go to `_job_executor` which preserves submit order: the first
@@ -1319,7 +1364,9 @@ def trigger_job(map_type: str, max_fff_override: int | None = None) -> None:
     `trigger-job-all` honours MAP_SPECS order — fixes the bug where
     wind_surface occasionally started before temperature_feels_like.
     """
-    _job_executor.submit(_job_for_map_type, map_type, max_fff_override)
+    _job_executor.submit(
+        _job_for_map_type, map_type, max_fff_override, run_id_override,
+    )
 
 
 def get_all_job_status() -> dict[str, dict]:

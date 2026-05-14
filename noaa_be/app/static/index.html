@@ -625,6 +625,29 @@
                         </div>
                     </div>
 
+                    <!-- Optional GFS cycle override (date + hour). Empty = auto-discover. -->
+                    <div class="form-row" style="margin-bottom: 20px;">
+                        <div class="input-group" style="margin-bottom: 0; flex: 1;">
+                            <label>Ngày GFS (UTC)</label>
+                            <input type="date" class="form-control" id="manRunDate"
+                                   title="Để trống = auto-discover. Chọn ngày để chỉ định cycle cụ thể (UTC).">
+                        </div>
+                        <div class="input-group" style="margin-bottom: 0; width: 140px;">
+                            <label>Cycle (UTC)</label>
+                            <select class="form-control" id="manRunHour" title="GFS cycle hour: 00z / 06z / 12z / 18z">
+                                <option value="">— auto —</option>
+                                <option value="0">00z</option>
+                                <option value="6">06z</option>
+                                <option value="12">12z</option>
+                                <option value="18">18z</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div style="font-size: 12px; color: var(--text-muted); margin: -8px 0 16px;">
+                        Để trống cả ngày & cycle → BE tự dò chu kỳ mới nhất trên NOAA (mặc định).
+                        Chỉ điền khi anh muốn ép manual chạy với 1 cycle cụ thể.
+                    </div>
+
                     <button class="btn btn-primary" id="btnRunPipeline" style="justify-content: center; width: 100%; padding: 14px;" onclick="runManualPipeline()">
                         <i class="ph ph-play-circle" style="font-size: 20px;"></i>
                         <span id="btnRunPipelineLabel">Run Pipeline (all maps)</span>
@@ -1387,10 +1410,29 @@
             const rawMax = parseInt(document.getElementById('manMaxFff').value);
             const maxFff = (useFullSpec || !rawMax || rawMax <= 0) ? null : rawMax;
 
-            const qs = maxFff != null ? `?max_fff=${maxFff}` : '';
+            // Optional run_id override: build from date + hour. Both must be
+            // set to override; otherwise BE auto-discovers latest cycle.
+            const rawDate = document.getElementById('manRunDate').value;       // "2026-05-14"
+            const rawHour = document.getElementById('manRunHour').value;        // "" | "0" | "6" | "12" | "18"
+            let runId = null;
+            if (rawDate && rawHour !== '') {
+                const ymd = rawDate.replaceAll('-', '');                        // 20260514
+                const hh  = String(parseInt(rawHour, 10)).padStart(2, '0');     // 00, 06, 12, 18
+                runId = `${ymd}_${hh}z`;
+            } else if (rawDate || rawHour !== '') {
+                appendManualLog('Vui lòng điền CẢ ngày lẫn cycle (UTC) — hoặc để trống cả hai để auto-discover.', 'warn');
+                return;
+            }
+
+            const params = new URLSearchParams();
+            if (maxFff != null) params.set('max_fff', String(maxFff));
+            if (runId) params.set('run_id', runId);
+            const qs = params.toString() ? `?${params.toString()}` : '';
+
             appendManualLog('----------------------------------------', 'info');
             appendManualLog(
-                `Run Pipeline (all maps)  ${maxFff != null ? `· max_fff=${maxFff}` : '· full spec (= auto)'}`,
+                `Run Pipeline (all maps)  ${maxFff != null ? `· max_fff=${maxFff}` : '· full spec (= auto)'}`
+                  + `  ${runId ? `· run_id=${runId}` : '· cycle auto-discover'}`,
                 'blue',
             );
 
