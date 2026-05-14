@@ -103,30 +103,6 @@ _CUSTOM_SNOW = mcolors.ListedColormap(
     name="snow_depth",
 )
 
-# ── Cloud colormaps ──────────────────────────────────────────────────────────
-_CUSTOM_CLOUD_LOW = mcolors.LinearSegmentedColormap.from_list(
-    "cloud_low",
-    [(0.0, "#dce8f5"), (0.5, "#c5d8ec"), (1.0, "#a8c0d8")],
-)
-_CUSTOM_CLOUD_MID = mcolors.LinearSegmentedColormap.from_list(
-    "cloud_mid",
-    [(0.0, "#f5f0ff"), (0.5, "#e0d8f0"), (1.0, "#c8bce0")],
-)
-_CUSTOM_CLOUD_HIGH = mcolors.LinearSegmentedColormap.from_list(
-    "cloud_high",
-    [(0.0, "#ffffff"), (1.0, "#f8f8f8")],
-)
-_CUSTOM_CLOUD_TOTAL = mcolors.LinearSegmentedColormap.from_list(
-    "cloud_total",
-    [
-        (0.00, "#ffffff"),
-        (0.25, "#f7fbff"),
-        (0.50, "#eef5fb"),
-        (0.75, "#dde8f2"),
-        (1.00, "#c7d6e3"),
-    ],
-)
-
 # ── Advanced Precipitation Base ──────────────────────────────────────────────
 #
 # 19-slot ListedColormap:  index 0 = dry,  1-6 = rain,  7-12 = mixed,  13-18 = snow
@@ -291,36 +267,6 @@ _CONFIGS: dict[str, dict] = {
         "norm_offset": 1,
         "alpha_per_bin": [0, 220, 220, 220, 220],
     },
-    # ── Cloud Total ──────────────────────────────────────────────────────
-    "cloud_total": {
-        "cmap": _CUSTOM_CLOUD_TOTAL,
-        "vmin": 0.0,
-        "vmax": 100.0,
-        "unit": "%",
-        "alpha_mode": "cloud_scale",
-        "alpha": 165,
-    },
-    "cloud_layered_low": {
-        "cmap": _CUSTOM_CLOUD_LOW,
-        "vmin": 0.0,
-        "vmax": 100.0,
-        "unit": "%",
-        "alpha_mode": "scale",
-    },
-    "cloud_layered_mid": {
-        "cmap": _CUSTOM_CLOUD_MID,
-        "vmin": 0.0,
-        "vmax": 100.0,
-        "unit": "%",
-        "alpha_mode": "scale",
-    },
-    "cloud_layered_high": {
-        "cmap": _CUSTOM_CLOUD_HIGH,
-        "vmin": 0.0,
-        "vmax": 100.0,
-        "unit": "%",
-        "alpha_mode": "scale",
-    },
     # ── Snow Depth ──────────────────────────────────────────────────────
     "snow_depth": {
         "cmap": _CUSTOM_SNOW,
@@ -331,14 +277,6 @@ _CONFIGS: dict[str, dict] = {
         "norm_mode": "stepped_snow",
         "norm_bins": [0, 1, 25, 50, 100, 150, 200, 250, 300, 350, 400, 750],
         "alpha_per_bin": [0, 0, 190, 195, 205, 210, 218, 224, 230, 235, 238, 242, 245],
-    },
-    # wind_animation — client-side colormap, no PNG tiles
-    "wind_animation": {
-        "cmap": matplotlib.colormaps["viridis"],
-        "vmin": 0.0,
-        "vmax": 30.0,
-        "unit": "m/s",
-        "alpha_mode": "fixed",
     },
     # ── Wind Surface ─────────────────────────────────────────────────────
     "wind_surface": {
@@ -351,20 +289,8 @@ _CONFIGS: dict[str, dict] = {
     },
 }
 
-# cloud_layered sub-type lookup
-_CLOUD_LAYERED_KEY = {
-    "low_cloud":  "cloud_layered_low",
-    "mid_cloud":  "cloud_layered_mid",
-    "high_cloud": "cloud_layered_high",
-}
-
-
 def _get_config(map_type: str, product: str | None = None) -> dict:
-    if map_type == "cloud_layered" and product:
-        key = _CLOUD_LAYERED_KEY.get(product, "cloud_layered_low")
-    else:
-        key = map_type
-    cfg = _CONFIGS.get(key)
+    cfg = _CONFIGS.get(map_type)
     if cfg is None:
         raise ValueError(
             f"No colormap config for map_type={map_type!r}, product={product!r}")
@@ -523,10 +449,6 @@ def apply_colormap(
     elif alpha_mode == "scale":
         norm_vals = np.clip((values - vmin) / (vmax - vmin), 0.0, 1.0)
         rgba[..., 3] = (norm_vals * effective_alpha).astype(np.uint8)
-    elif alpha_mode == "cloud_scale":
-        visible = np.clip((values - 5.0) / 95.0, 0.0, 1.0)
-        alpha_norm = np.power(visible, 0.75)
-        rgba[..., 3] = (alpha_norm * effective_alpha).astype(np.uint8)
     elif alpha_mode == "wind_scale":
         # Fade out calm winds smoothly. 0.5 m/s -> fully transparent. 15 m/s -> max alpha.
         visible = np.clip((values - 0.5) / 14.5, 0.0, 1.0)

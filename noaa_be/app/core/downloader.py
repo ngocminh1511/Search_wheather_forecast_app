@@ -10,7 +10,7 @@ File naming convention inside noaa_be:
 
 e.g.:
   data/rain_basic/20260406_00z/apcp_surface/f000.grib2
-  data/wind_animation/20260406_00z/wind_30m/f003.grib2
+  data/wind_surface/20260406_00z/wind_10m/f006.grib2
 
 This differs from the research scripts/ naming so the two never conflict.
 """

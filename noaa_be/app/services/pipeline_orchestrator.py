@@ -11,9 +11,9 @@ from .resource_guard import check_resources
 
 log = logging.getLogger(__name__)
 
-# Map types that use custom multi-field pipelines (precip, wind, cloud).
+# Map types that use custom multi-field pipelines (precip, wind).
 # These bypass the generic Parse→Build→Cut stages and run generate_frame directly.
-_CUSTOM_MAP_TYPES = frozenset({"rain_advanced", "cloud_total", "wind_surface"})
+_CUSTOM_MAP_TYPES = frozenset({"rain_advanced", "wind_surface"})
 
 _orchestrator_instance = None
 
@@ -37,7 +37,60 @@ class PipelineOrchestrator:
         self.is_running = False
         self.workers    = []
         self.active_runs: set[str] = set()
+        self.published_runs: set[str] = set()  # Tracks runs already queued for publish
         self.hot_fff = set(self.cfg.PRIORITY_FFF_HOT_LIST)
+
+        # Per-(map_type, run_id) push metrics tracker for reporting.
+        # Updated after each push_frame_to_bunny() call in cut_worker / parse_worker.
+        # Schema: {(map_type, run_id): {
+        #     "first_push_at": str ISO | None,
+        #     "last_push_at":  str ISO | None,
+        #     "accumulated_seconds": float,
+        #     "ok": int, "failed": int, "bytes": int,
+        #     "transient_errors": int, "permanent_errors": int,
+        # }}
+        self.push_metrics: dict[tuple[str, str], dict] = {}
+
+    def get_push_metrics(self, map_type: str, run_id: str) -> dict:
+        """Return accumulated push metrics for a (map, run); empty dict if none."""
+        return self.push_metrics.get((map_type, run_id), {}) or {}
+
+    def reset_push_metrics(self, map_type: str, run_id: str) -> None:
+        """Clear push metrics after consumed by reporting."""
+        self.push_metrics.pop((map_type, run_id), None)
+
+    def _accumulate_push(
+        self,
+        map_type: str,
+        run_id: str,
+        duration_s: float,
+        ok: int,
+        failed: int,
+        bytes_uploaded: int,
+        is_transient_error: bool = False,
+    ) -> None:
+        """Track a single push_frame call's outcome into per-map metrics."""
+        from datetime import datetime as _dt, timezone as _tz
+        now = _dt.now(_tz.utc).isoformat()
+        key = (map_type, run_id)
+        m = self.push_metrics.setdefault(key, {
+            "first_push_at": now,
+            "last_push_at": now,
+            "accumulated_seconds": 0.0,
+            "ok": 0, "failed": 0, "bytes": 0,
+            "transient_errors": 0, "permanent_errors": 0,
+        })
+        if m.get("first_push_at") is None:
+            m["first_push_at"] = now
+        m["last_push_at"] = now
+        m["accumulated_seconds"] += duration_s
+        m["ok"] += ok
+        m["failed"] += failed
+        m["bytes"] += bytes_uploaded
+        if is_transient_error:
+            m["transient_errors"] += 1
+        if failed > 0 and not is_transient_error:
+            m["permanent_errors"] += failed
 
     def _job_priority(self, map_type: str, fff: int) -> tuple[int, int]:
         """
@@ -124,20 +177,19 @@ class PipelineOrchestrator:
                 for product in products:
                     job_id = f"{map_type}_{run_id}_{fff:03d}_{product}"
 
-                    # --- REAL filesystem check (never trust DB alone) ---
-                    stg = self.cfg.STAGING_DIR / map_type / run_id / f"{fff:03d}" / product
-                    live = self.cfg.TILES_DIR   / map_type / run_id / f"{fff:03d}" / product
-
-                    n_stg = sum(1 for _ in stg.rglob("*.chunk")) if stg.exists() else 0
+                    # --- REAL filesystem check ---
+                    # Only count LIVE tiles — staging is transient/incomplete.
+                    # Counting staging would incorrectly skip frames that haven't
+                    # been published yet (stale staging from a previous run).
+                    live = self.cfg.TILES_DIR / map_type / run_id / f"{fff:03d}" / product
                     n_live = sum(1 for _ in live.rglob("*.chunk")) if live.exists() else 0
-                    n_total = n_stg + n_live
 
-                    if n_total >= MIN_CHUNKS:
-                        log.debug("[submit] SKIP %s — %d chunks on disk", job_id, n_total)
+                    if n_live >= MIN_CHUNKS:
+                        log.debug("[submit] SKIP %s — %d live chunks on disk", job_id, n_live)
                         upsert_pipeline_job(job_id, map_type, run_id, fff, product, "READY")
                         continue
 
-                    log.debug("[submit] QUEUE %s (disk=%d)", job_id, n_total)
+                    log.debug("[submit] QUEUE %s (disk=%d)", job_id, n_live)
                     job_data = {
                         "id":       job_id,
                         "map_type": map_type,
@@ -184,8 +236,8 @@ class PipelineOrchestrator:
                     raise JobCancelledError("Cancelled by user")
 
                 # -------------------------------------------------------
-                # CUSTOM MAPS: rain_advanced, cloud_total, wind_surface
-                # These use multi-field pipelines (precip, cloud, wind).
+                # CUSTOM MAPS: rain_advanced, wind_surface
+                # These use multi-field pipelines (precip, wind).
                 # We call generate_frame directly in the parse pool and
                 # mark READY immediately — no Build/Cut stages needed.
                 # -------------------------------------------------------
@@ -201,6 +253,48 @@ class PipelineOrchestrator:
                             job["id"], map_type, job["run_id"], job["fff"], job["product"], "SKIPPED"
                         )
                     else:
+                        # Per-frame Bunny push for custom maps (whole frame dir at once,
+                        # since custom pipelines write all products under same fff/ subdir).
+                        from ..config import get_settings
+                        _cfg = get_settings()
+                        if _cfg.BUNNY_ENABLED:
+                            import time as _time
+                            push_t0 = _time.perf_counter()
+                            push_ok = False
+                            push_stats = None
+                            try:
+                                from .pipeline_tasks import push_frame_to_bunny_with_stats
+                                push_stats = await loop.run_in_executor(
+                                    None,
+                                    lambda: push_frame_to_bunny_with_stats(
+                                        map_type=map_type,
+                                        run_id=job["run_id"],
+                                        fff=job["fff"],
+                                    ),
+                                )
+                                push_ok = push_stats.get("success", False)
+                            except Exception as e:
+                                log.error(
+                                    "Bunny push exception (non-fatal) for custom %s/%s/f%03d: %s",
+                                    map_type, job["run_id"], job["fff"], e,
+                                )
+                                if _cfg.BUNNY_FAIL_FAST:
+                                    raise
+                            finally:
+                                push_dt = _time.perf_counter() - push_t0
+                                if push_stats:
+                                    self._accumulate_push(
+                                        map_type=map_type,
+                                        run_id=job["run_id"],
+                                        duration_s=push_dt,
+                                        ok=push_stats.get("ok", 0),
+                                        failed=push_stats.get("failed", 0),
+                                        bytes_uploaded=push_stats.get("bytes", 0),
+                                        is_transient_error=(
+                                            not push_ok and push_stats.get("failed", 0) > 0
+                                        ),
+                                    )
+
                         upsert_pipeline_job(
                             job["id"], map_type, job["run_id"], job["fff"], job["product"], "READY"
                         )
@@ -321,13 +415,60 @@ class PipelineOrchestrator:
                     job["map_type"], job["run_id"], job["fff"], job["product"], build_result,
                 )
 
-                # Validate: only mark READY if tiles actually exist on disk
-                actual_on_disk = cut_result.get("actual_on_disk", 0)
-                total_skipped  = cut_result.get("skipped", 0)
-                if actual_on_disk < 10 and total_skipped < 10:
+                # Validate: only mark READY if tiles actually produced
+                actual_saved  = cut_result.get("saved", 0)
+                total_skipped = cut_result.get("empty_skipped", 0)
+                if actual_saved < 1 and total_skipped < 1:
                     raise RuntimeError(
-                        f"Cut produced only {actual_on_disk} tiles on disk — something went wrong"
+                        f"Cut produced 0 tiles for "
+                        f"{job['map_type']}/{job['run_id']}/f{job['fff']:03d}/{job['product']}"
+                        f" — something went wrong"
                     )
+
+                # Per-frame Bunny push (after tiles cut, before READY marker)
+                # Pushes only this product's subdir from STAGING. Frontend doesn't see it
+                # until finalize_map_to_bunny() switches the pointer at end of cycle.
+                from ..config import get_settings
+                _cfg = get_settings()
+                if _cfg.BUNNY_ENABLED:
+                    import time as _time
+                    push_t0 = _time.perf_counter()
+                    push_ok = False
+                    push_stats = None
+                    try:
+                        from .pipeline_tasks import push_frame_to_bunny_with_stats
+                        push_stats = await loop.run_in_executor(
+                            None,
+                            lambda: push_frame_to_bunny_with_stats(
+                                map_type=job["map_type"],
+                                run_id=job["run_id"],
+                                fff=job["fff"],
+                                product=job["product"],
+                            ),
+                        )
+                        push_ok = push_stats.get("success", False)
+                    except Exception as e:
+                        log.error(
+                            "Bunny push exception (non-fatal) for %s/%s/f%03d/%s: %s",
+                            job["map_type"], job["run_id"], job["fff"], job["product"], e,
+                        )
+                        if _cfg.BUNNY_FAIL_FAST:
+                            raise
+                    finally:
+                        # Accumulate per-map metrics for cycle reporting
+                        push_dt = _time.perf_counter() - push_t0
+                        if push_stats:
+                            self._accumulate_push(
+                                map_type=job["map_type"],
+                                run_id=job["run_id"],
+                                duration_s=push_dt,
+                                ok=push_stats.get("ok", 0),
+                                failed=push_stats.get("failed", 0),
+                                bytes_uploaded=push_stats.get("bytes", 0),
+                                is_transient_error=(
+                                    not push_ok and push_stats.get("failed", 0) > 0
+                                ),
+                            )
 
                 upsert_pipeline_job(
                     job["id"], job["map_type"], job["run_id"], job["fff"], job["product"], "READY"
@@ -364,14 +505,19 @@ class PipelineOrchestrator:
             try:
                 map_type = run_info["map_type"]
                 run_id   = run_info["run_id"]
+                run_key  = f"{map_type}_{run_id}"
                 log.info("Publishing %s/%s to LIVE", map_type, run_id)
 
                 from .pipeline_tasks import publish_staging_to_live
                 publish_staging_to_live(map_type, run_id)
 
-                self.active_runs.discard(f"{map_type}_{run_id}")
+                self.active_runs.discard(run_key)
+                # Keep published_runs entry — prevents re-queuing if _check_run_completion
+                # is called again for the same run after publish completes.
             except Exception as e:
                 log.error("Publish failed for %s/%s: %s", run_info["map_type"], run_info["run_id"], e)
+                # On failure, remove from published_runs so it can be retried
+                self.published_runs.discard(f"{run_info['map_type']}_{run_info['run_id']}")
             finally:
                 self.publish_queue.task_done()
 
@@ -380,7 +526,13 @@ class PipelineOrchestrator:
     # ------------------------------------------------------------------
 
     async def _check_run_completion(self, map_type: str, run_id: str):
-        """Push run to publish queue when all its jobs are in a terminal state."""
+        """Push run to publish queue ONCE when all its jobs reach a terminal state."""
+        run_key = f"{map_type}_{run_id}"
+
+        # Guard: never publish the same run twice
+        if run_key in self.published_runs:
+            return
+
         jobs = get_pipeline_jobs_by_run(map_type, run_id)
         if not jobs:
             return
@@ -388,14 +540,20 @@ class PipelineOrchestrator:
         terminal = {"READY", "SKIPPED", "ERROR", "CANCELLED"}
         all_done = all(j["state"] in terminal for j in jobs)
         if not all_done:
+            log.debug(
+                "[completion] %s — %d/%d jobs terminal, waiting for rest",
+                run_key, sum(1 for j in jobs if j["state"] in terminal), len(jobs)
+            )
             return
 
         has_ready = any(j["state"] == "READY" for j in jobs)
         if has_ready:
-            self.publish_queue.put_nowait((0, f"{map_type}_{run_id}", {"map_type": map_type, "run_id": run_id}))
+            log.info("[completion] All %d jobs done for %s — queuing publish", len(jobs), run_key)
+            self.published_runs.add(run_key)  # Mark before queuing to prevent race
+            self.publish_queue.put_nowait((0, run_key, {"map_type": map_type, "run_id": run_id}))
         else:
             # All errored/cancelled — remove from active without publishing
-            self.active_runs.discard(f"{map_type}_{run_id}")
+            self.active_runs.discard(run_key)
 
 
 def get_orchestrator() -> PipelineOrchestrator:

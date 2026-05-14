@@ -11,10 +11,10 @@ log = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# CUSTOM MAP TASK — rain_advanced / cloud_total / wind_surface
+# CUSTOM MAP TASK — rain_advanced / wind_surface
 # These use multi-field pipelines — bypass the Parse→Build→Cut stages entirely.
 # ---------------------------------------------------------------------------
-def task_generate_custom_frame(map_type: str, run_id: str, fff: int, product_name: str) -> dict:
+def task_generate_custom_frame(map_type: str, run_id: str, fff: int, product_name: str, base_only: bool = False, field_only: bool = False) -> dict:
     """Generate tiles for custom map types using their dedicated pipelines.
 
     Called from the parse worker when map_type is in _CUSTOM_MAP_TYPES.
@@ -36,15 +36,7 @@ def task_generate_custom_frame(map_type: str, run_id: str, fff: int, product_nam
                 data_dir=cfg.DATA_DIR, output_dir=output_dir,
                 zoom_min=0, zoom_max=cfg.TILE_ZOOM_EAGER_MAX,
                 workers=cfg.TILE_PROCESS_WORKERS, skip_existing=True,
-            )
-
-        elif map_type == "cloud_total":
-            from ..core.cloud_pipeline import generate_cloud_frame
-            result = generate_cloud_frame(
-                run_id=run_id, fff=fff,
-                data_dir=cfg.DATA_DIR, output_dir=output_dir,
-                zoom_min=0, zoom_max=cfg.TILE_ZOOM_EAGER_MAX,
-                workers=cfg.TILE_PROCESS_WORKERS, skip_existing=True,
+                base_only=base_only,
             )
 
         elif map_type == "wind_surface":
@@ -54,6 +46,7 @@ def task_generate_custom_frame(map_type: str, run_id: str, fff: int, product_nam
                 data_dir=cfg.DATA_DIR, output_dir=output_dir,
                 zoom_min=0, zoom_max=cfg.TILE_ZOOM_EAGER_MAX,
                 workers=cfg.TILE_PROCESS_WORKERS, skip_existing=True,
+                base_only=base_only, field_only=field_only,
             )
         else:
             return {"skipped": True, "reason": f"Unknown custom map_type: {map_type}"}
@@ -82,6 +75,9 @@ def task_generate_custom_frame(map_type: str, run_id: str, fff: int, product_nam
         "product":      product_name,
         "actual_tiles": actual_tiles,
         "duration_s":   round(elapsed, 2),
+        # Pass through pipeline-level timings and metatile stats for benchmarking
+        "timings":      result.get("timings", {}),
+        "base":         result.get("base", {}),
     }
 
 
@@ -263,6 +259,16 @@ def task_cut_and_write_tiles(
         "chunks_written": summary["chunks_written"],
         "total": summary["total"],
         "cut_duration_s": time.perf_counter() - start_t,
+        # Metatile-level detail for benchmark
+        "metatiles_total": summary.get("metatiles_total", 0),
+        "metatiles_empty_skipped": summary.get("metatiles_empty_skipped", 0),
+        "tiles_empty_skipped_inside_nonempty": summary.get("tiles_empty_skipped_inside_nonempty", 0),
+        "metatile_extract_time_s": summary.get("metatile_extract_time_s", 0.0),
+        "colorize_time_s": summary.get("colorize_time_s", 0.0),
+        "encode_time_s": summary.get("encode_time_s", 0.0),
+        "chunk_write_time_s": summary.get("chunk_write_time_s", 0.0),
+        "bytes_before_compress": summary.get("bytes_before_compress", 0),
+        "bytes_after_compress": summary.get("bytes_after_compress", 0),
     }
 
 
@@ -270,24 +276,42 @@ def task_cut_and_write_tiles(
 # PUBLISH WORKER TASK
 # ---------------------------------------------------------------------------
 def publish_staging_to_live(map_type: str, run_id: str):
-    """Atomically swap STAGING → LIVE for a completed run.
+    """Publish STAGING → live destination.
 
-    Strategy:
-      1. Merge staging tiles into live (missing tiles get added, existing live tiles preserved).
-      2. Remove staging after successful merge.
+    Two modes:
+      - Bunny enabled: tiles already pushed per-frame to Bunny during cut.
+        Just cleanup STAGING (Bunny is canonical, no LIVE local).
+      - Bunny disabled (legacy): copy STAGING → LIVE local then remove STAGING.
 
-    This is safer than a rename-swap because after publish, live already contains
-    all tiles from staging PLUS any tiles from a previous run that were not re-generated.
+    Called once per run from the publish worker.
     """
     cfg = get_settings()
     staging = cfg.STAGING_DIR / map_type / run_id
-    live = cfg.TILES_DIR / map_type / run_id
 
     if not staging.exists():
         log.warning(f"publish_staging_to_live: staging dir does not exist: {staging}")
         return
 
-    # Count staging tiles before merge (sanity check)
+    # ── Bunny mode: STAGING is ephemeral, Bunny is canonical ──────────────
+    if cfg.BUNNY_ENABLED:
+        # Per-frame push happened during cut. STAGING residuals (e.g. interp
+        # sub-frames pushed separately by scheduler) may still exist; remove.
+        # NO LIVE local — Bunny is the only canonical store.
+        try:
+            shutil.rmtree(str(staging), ignore_errors=True)
+            log.info(
+                "Bunny mode: STAGING cleaned up for %s/%s (LIVE local skipped)",
+                map_type, run_id,
+            )
+        except Exception as exc:
+            log.warning(
+                "Bunny mode: STAGING cleanup failed (non-fatal) %s/%s: %s",
+                map_type, run_id, exc,
+            )
+        return
+
+    # ── Legacy local-only mode: STAGING → LIVE ────────────────────────────
+    live = cfg.TILES_DIR / map_type / run_id
     staging_count = sum(1 for _ in staging.rglob("*.chunk"))
     if staging_count == 0:
         log.warning(
@@ -295,22 +319,209 @@ def publish_staging_to_live(map_type: str, run_id: str):
         )
         return
 
-    log.info(f"Publishing {map_type}/{run_id}: {staging_count} chunks from staging → live")
-
+    log.info(
+        f"Publishing {map_type}/{run_id}: {staging_count} chunks from staging → live (legacy local mode)"
+    )
     live.mkdir(parents=True, exist_ok=True)
-
     try:
         # Use copytree with dirs_exist_ok to merge staging into live
-        # New files from staging overwrite old ones in live (tiles regenerated take priority)
         shutil.copytree(str(staging), str(live), dirs_exist_ok=True)
-
-        # Validate live dir after merge
         live_count = sum(1 for _ in live.rglob("*.chunk"))
         log.info(f"Published {map_type}/{run_id}: live now has {live_count} CHUNK files")
-
-        # Only remove staging if merge was successful
         shutil.rmtree(str(staging), ignore_errors=True)
-
     except Exception as exc:
         log.error(f"publish_staging_to_live failed for {map_type}/{run_id}: {exc}")
         raise
+
+
+# ---------------------------------------------------------------------------
+# Bunny.net Storage push — per-frame
+# ---------------------------------------------------------------------------
+def push_frame_to_bunny(
+    map_type: str,
+    run_id: str,
+    fff: int,
+    fff_label: str | None = None,
+    product: str | None = None,
+    source_root: Path | None = None,
+) -> bool:
+    """Push 1 frame's (or 1 product within a frame's) tiles to Bunny.net Storage.
+
+    Called per-(frame, product) after tile_cutter writes chunks to STAGING.
+    Frontend does NOT see this run yet — pointer (`_current.json`) still points
+    to old run. Frontend will only switch when finalize_map_to_bunny() runs.
+
+    Args:
+        map_type: e.g. 'wind_surface'
+        run_id: e.g. '20260510_06z'
+        fff: forecast hour, e.g. 6
+        fff_label: optional label override (e.g. '006_15' for interp sub-frames).
+                   Defaults to f"{fff:03d}".
+        product: optional product name to scope the push to a single product
+                 subdir (e.g. 'wind_base'). When None, pushes the whole frame.
+        source_root: optional override for source dir (defaults to STAGING_DIR).
+                     Used by `finalize_map_to_bunny` to push from LIVE for hardlinked
+                     cold frames.
+
+    Returns:
+        True if all chunks uploaded successfully (or Bunny disabled).
+        False if any chunk failed (caller may retry or abort).
+    """
+    cfg = get_settings()
+    label = fff_label if fff_label is not None else f"{fff:03d}"
+    base = source_root if source_root is not None else cfg.STAGING_DIR
+
+    # Build local source dir + remote label
+    if product:
+        local_dir = base / map_type / run_id / label / product
+        remote_label = f"{label}/{product}"
+    else:
+        local_dir = base / map_type / run_id / label
+        remote_label = label
+
+    if not local_dir.exists():
+        log.warning(
+            "push_frame_to_bunny: source dir missing %s",
+            local_dir,
+        )
+        return False
+
+    try:
+        from .bunny_storage import get_bunny_client
+        bunny = get_bunny_client()
+    except Exception as exc:
+        log.error("push_frame_to_bunny: failed to init Bunny client: %s", exc)
+        return False
+
+    if bunny is None:
+        # BUNNY_ENABLED=0 or misconfigured → noop, treat as success
+        return True
+
+    try:
+        stats = bunny.push_frame(local_dir, map_type, run_id, remote_label)
+    except Exception as exc:
+        log.error(
+            "push_frame_to_bunny: %s/%s/%s exception: %s",
+            map_type, run_id, remote_label, exc,
+        )
+        if cfg.BUNNY_FAIL_FAST:
+            raise
+        return False
+
+    success = (stats["failed"] == 0 and stats["total"] > 0)
+    log.info(
+        "Bunny push %s/%s/%s: ok=%d failed=%d bytes=%d %s",
+        map_type, run_id, remote_label,
+        stats["ok"], stats["failed"], stats["bytes"],
+        "✓" if success else "✗",
+    )
+
+    # Per-frame STAGING cleanup after successful push (Bunny is canonical, no LIVE local).
+    # Only delete the dir we just pushed (product subdir or full frame dir).
+    if success and source_root is None:
+        try:
+            shutil.rmtree(local_dir, ignore_errors=True)
+            log.debug("STAGING cleaned up after push: %s", local_dir)
+            # If product-scoped and parent frame dir is now empty, remove parent too
+            if product:
+                parent = cfg.STAGING_DIR / map_type / run_id / label
+                try:
+                    if parent.exists() and not any(parent.iterdir()):
+                        parent.rmdir()
+                except OSError:
+                    pass
+        except Exception as exc:
+            log.warning(
+                "STAGING cleanup failed (non-fatal) %s: %s", local_dir, exc,
+            )
+
+    if not success and cfg.BUNNY_FAIL_FAST:
+        raise RuntimeError(
+            f"Bunny push had {stats['failed']} failures for "
+            f"{map_type}/{run_id}/{remote_label}"
+        )
+    return success
+
+
+def push_frame_to_bunny_with_stats(
+    map_type: str,
+    run_id: str,
+    fff: int,
+    fff_label: str | None = None,
+    product: str | None = None,
+    source_root: Path | None = None,
+) -> dict:
+    """Same as push_frame_to_bunny() but returns full stats dict for reporting.
+
+    Returns:
+        {
+          "success": bool,
+          "ok": int,         # chunks uploaded successfully
+          "failed": int,     # chunks failed
+          "bytes": int,      # bytes uploaded
+          "total": int,      # total chunks attempted
+        }
+    """
+    cfg = get_settings()
+    label = fff_label if fff_label is not None else f"{fff:03d}"
+    base = source_root if source_root is not None else cfg.STAGING_DIR
+
+    if product:
+        local_dir = base / map_type / run_id / label / product
+        remote_label = f"{label}/{product}"
+    else:
+        local_dir = base / map_type / run_id / label
+        remote_label = label
+
+    if not local_dir.exists():
+        return {"success": False, "ok": 0, "failed": 0, "bytes": 0, "total": 0}
+
+    try:
+        from .bunny_storage import get_bunny_client
+        bunny = get_bunny_client()
+    except Exception:
+        return {"success": False, "ok": 0, "failed": 0, "bytes": 0, "total": 0}
+
+    if bunny is None:
+        return {"success": True, "ok": 0, "failed": 0, "bytes": 0, "total": 0}
+
+    try:
+        stats = bunny.push_frame(local_dir, map_type, run_id, remote_label)
+    except Exception as exc:
+        log.error(
+            "push_frame_to_bunny_with_stats: %s/%s/%s exception: %s",
+            map_type, run_id, remote_label, exc,
+        )
+        if cfg.BUNNY_FAIL_FAST:
+            raise
+        return {"success": False, "ok": 0, "failed": 0, "bytes": 0, "total": 0}
+
+    success = (stats["failed"] == 0 and stats["total"] > 0)
+    log.info(
+        "Bunny push %s/%s/%s: ok=%d failed=%d bytes=%d %s",
+        map_type, run_id, remote_label,
+        stats["ok"], stats["failed"], stats["bytes"],
+        "✓" if success else "✗",
+    )
+
+    # Per-frame STAGING cleanup after successful push
+    if success and source_root is None:
+        try:
+            shutil.rmtree(local_dir, ignore_errors=True)
+            if product:
+                parent = cfg.STAGING_DIR / map_type / run_id / label
+                try:
+                    if parent.exists() and not any(parent.iterdir()):
+                        parent.rmdir()
+                except OSError:
+                    pass
+        except Exception as exc:
+            log.warning("STAGING cleanup failed (non-fatal) %s: %s", local_dir, exc)
+
+    return {
+        "success": success,
+        "ok": stats["ok"],
+        "failed": stats["failed"],
+        "bytes": stats["bytes"],
+        "total": stats["total"],
+    }

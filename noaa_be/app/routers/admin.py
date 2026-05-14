@@ -11,9 +11,13 @@ POST /api/v1/admin/trigger-job/{map_type}   → fire scheduler job immediately
 GET  /api/v1/admin/jobs                     → all job statuses
 """
 
-from typing import Optional
+import logging
+from typing import Optional, Any, Dict
 
-from fastapi import APIRouter, BackgroundTasks, Body, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Body, HTTPException, Query, Request
+
+log = logging.getLogger(__name__)
+from fastapi.responses import StreamingResponse
 
 from ..schemas.map import AdminJobStatus
 from ..services.scheduler_service import get_all_job_status, trigger_job
@@ -154,6 +158,13 @@ def trigger_download(
         explicit_fffs = [f for f in all_fff if f <= max_fff]
     else:
         explicit_fffs = _compute_needed_fffs(map_type, cfg)
+
+    if not explicit_fffs:
+        return {
+            "status": "error",
+            "message": f"Không có frame nào trong khoảng max_fff={max_fff} cho {map_type}. "
+                       f"fff_segments_full bắt đầu từ {segment_fff(MAP_SPECS[map_type].fff_segments_full)[0] if MAP_SPECS.get(map_type) else '?'}.",
+        }
 
     ok, reason = coverage_sufficient(map_type, run_id, cfg)
     if ok:
@@ -344,6 +355,61 @@ def trigger_generate_tiles(
     return {"queued": True, "map_type": map_type, "run_id": run_id}
 
 
+@router.post("/finalize-bunny/{map_type}/{run_id}")
+def finalize_bunny(map_type: str, run_id: str) -> dict:
+    """Write/refresh `_current.json` + `_timeline.json` lên Bunny cho run này.
+
+    Dùng khi:
+    - Pipeline đã push chunks lên Bunny nhưng chưa kịp gọi finalize (crash giữa chừng)
+    - Manual Step 3 sinh tile xong và cần FE thấy được
+    """
+    from ..config import get_settings
+    from ..services.bunny_storage import get_bunny_client
+    from ..services.timeline_builder import build_timeline_static
+
+    cfg = get_settings()
+    if not cfg.BUNNY_ENABLED:
+        raise HTTPException(
+            status_code=400, detail="BUNNY_ENABLED=0 → cannot finalize")
+
+    try:
+        bunny = get_bunny_client()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500, detail=f"Cannot init Bunny client: {exc}")
+    if bunny is None:
+        raise HTTPException(
+            status_code=500, detail="Bunny client unavailable")
+
+    # 1. Write pointer (preserve previous_run from existing pointer)
+    existing_ptr = bunny.read_pointer(map_type)
+    prev = existing_ptr.get("previous_run") if existing_ptr else None
+    if existing_ptr and existing_ptr.get("current_run") and existing_ptr["current_run"] != run_id:
+        prev = existing_ptr["current_run"]
+
+    pointer_ok = bunny.write_pointer(map_type, current_run=run_id, previous_run=prev)
+
+    # 2. Build + upload timeline (bunny_run_ready=True since pointer now matches)
+    timeline_doc = build_timeline_static(map_type, run_id, cfg, bunny_run_ready=True)
+    if not timeline_doc["frames"]:
+        return {
+            "pointer_ok": pointer_ok,
+            "timeline_ok": False,
+            "reason": "no spec frames available in availability JSON",
+            "map_type": map_type,
+            "run_id": run_id,
+        }
+    timeline_ok = bunny.write_timeline_metadata(map_type, timeline_doc)
+
+    return {
+        "pointer_ok": bool(pointer_ok),
+        "timeline_ok": bool(timeline_ok),
+        "frame_count": len(timeline_doc["frames"]),
+        "map_type": map_type,
+        "run_id": run_id,
+    }
+
+
 @router.get("/check-missing-tiles")
 def check_missing_tiles(
     map_type: str = Query(...),
@@ -484,7 +550,6 @@ def trigger_generate_grids(
     cfg = get_settings()
 
     def _gen():
-        from ..services.grid_service import _WIND_PRODUCTS
         from ..services import progress_tracker
         from ..core.db import (
             get_job_status as db_get_job_status,
@@ -527,14 +592,7 @@ def trigger_generate_grids(
 
                 progress_tracker.update(
                     map_type, current_fff=fff, step_detail=f"Grid f{fff:03d}…")
-                if map_type == "wind_animation":
-                    for product in _WIND_PRODUCTS:
-                        try:
-                            generate_grid(map_type, run_id, fff, product,
-                                          data_dir=cfg.DATA_DIR, grids_dir=cfg.JSON_GRIDS_DIR)
-                        except Exception:
-                            pass
-                elif map_type == "rain_advanced":
+                if map_type == "rain_advanced":
                     try:
                         generate_grid(map_type, run_id, fff, "rain_advanced",
                                       data_dir=cfg.DATA_DIR, grids_dir=cfg.JSON_GRIDS_DIR)
@@ -579,76 +637,36 @@ def trigger_generate_grids(
 
 @router.delete("/runs/{map_type}/{run_id}")
 def delete_run_data(map_type: str, run_id: str) -> dict:
-    """Permanently delete all on-disk data for a (map_type, run_id).
+    """Permanently delete all on-disk data + Bunny mirror for a (map_type, run_id).
 
-    Removes (each only if present):
-      - live tiles      → TILES_DIR/<map_type>/<run_id>/
-      - staging tiles   → STAGING_DIR/<map_type>/<run_id>/
-      - raw GRIB2 data  → DATA_DIR/<map_type>/<run_id>/
-      - JSON grids      → JSON_GRIDS_DIR/<map_type>/<run_id>/
-      - per-map avail   → AVAILABLE_DIR/<map_type>/availability_{run_id}_{map_type}.json
-
-    Uses shutil.rmtree for fast single-syscall deletion of each directory.
+    Wraps the same `_delete_run` used by background delete jobs so behaviour is
+    identical: dọn local (tiles, staging, data, grids, availability) + dọn Bunny
+    (pointer/timeline reset + run prefix purge). Idempotent — safe to call on
+    map_types đã bị remove khỏi MAP_SPECS.
     """
-    import shutil as _shutil
-    from pathlib import Path as _Path
     from ..config import get_settings
-    from ..core.pipeline_adapter import get_map_specs
     from ..services.availability_service import parse_run_id
+    from ..services.delete_service import _delete_run
 
-    # Validate run_id format before touching any files
     try:
         parse_run_id(run_id)
     except ValueError:
         raise HTTPException(
             status_code=400, detail=f"Invalid run_id format: {run_id!r}")
 
-    specs = get_map_specs()
-    if map_type not in specs:
-        raise HTTPException(
-            status_code=404, detail=f"Unknown map_type: {map_type!r}")
-
     cfg = get_settings()
-    deleted: list[str] = []
-    errors: list[str] = []
+    try:
+        _delete_run(map_type, run_id, cfg)
+    except Exception as exc:
+        log.exception("delete_run sync failed %s/%s", map_type, run_id)
+        raise HTTPException(status_code=500, detail=str(exc))
 
-    def _rm(path: _Path, label: str) -> None:
-        if path.exists():
-            try:
-                _shutil.rmtree(path)
-                deleted.append(label)
-                log.info("delete_run: removed %s → %s", label, path)
-            except Exception as exc:
-                errors.append(f"{label}: {exc}")
-                log.error("delete_run: failed %s → %s (%s)", label, path, exc)
-
-    _rm(cfg.TILES_DIR / map_type / run_id, "tiles")
-    _rm(cfg.STAGING_DIR / map_type / run_id, "staging")
-    _rm(cfg.DATA_DIR / map_type / run_id, "data")
-    _rm(cfg.JSON_GRIDS_DIR / map_type / run_id, "json_grids")
-
-    # Per-map availability JSON (small file → unlink, not rmtree)
-    avail_file = cfg.AVAILABLE_DIR / map_type / \
-        f"availability_{run_id}_{map_type}.json"
-    if avail_file.exists():
-        try:
-            avail_file.unlink()
-            deleted.append("availability")
-            log.info("delete_run: removed availability → %s", avail_file)
-        except Exception as exc:
-            errors.append(f"availability: {exc}")
-            log.error("delete_run: failed availability → %s (%s)",
-                      avail_file, exc)
-
-    log.info(
-        "delete_run %s/%s complete: deleted=%s errors=%d",
-        map_type, run_id, deleted, len(errors),
-    )
-    return {"map_type": map_type, "run_id": run_id, "deleted": deleted, "errors": errors}
+    log.info("delete_run sync %s/%s complete", map_type, run_id)
+    return {"map_type": map_type, "run_id": run_id, "status": "deleted"}
 
 
 
-_storage_stats_cache = {"data": None, "is_computing": False, "last_updated": 0}
+_storage_stats_cache: Dict[str, Any] = {"data": None, "is_computing": False, "last_updated": 0}
 
 def _compute_storage_stats():
     from ..config import get_settings
@@ -812,14 +830,12 @@ def enqueue_delete_map(
     Pass ?run_id=20260419_12z to delete only that run; omit it to delete
     every run found on disk.
     """
-    from ..core.pipeline_adapter import get_map_specs
     from ..services.delete_service import enqueue_delete, is_map_locked
     from ..services.availability_service import parse_run_id
 
-    specs = get_map_specs()
-    if map_type not in specs:
-        raise HTTPException(
-            status_code=404, detail=f"Unknown map_type: {map_type!r}")
+    # KHÔNG check map_type vs specs — cho phép dọn data cũ của map đã bỏ khỏi spec
+    # (vd: cloud_total, cloud_layered đã remove). Delete service chỉ thao tác
+    # trên dir thực sự tồn tại nên an toàn.
 
     if run_id is not None:
         try:
@@ -868,12 +884,7 @@ def enqueue_bulk_delete(
         raise HTTPException(
             status_code=400, detail="map_types must not be empty")
 
-    specs = get_map_specs()
-    unknown = [mt for mt in map_types if mt not in specs]
-    if unknown:
-        raise HTTPException(
-            status_code=404, detail=f"Unknown map_types: {unknown}")
-
+    # KHÔNG check vs specs — cho phép dọn data của map cũ đã remove khỏi spec.
     if run_ids:
         for rid in run_ids:
             try:
@@ -915,26 +926,666 @@ def get_delete_job(job_id: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# User API Management
+# Cold Zone Info
 # ---------------------------------------------------------------------------
 
-@router.get("/user-api/status")
-def user_api_status() -> dict:
-    from ..services.user_api_manager import get_user_api_status
-    return get_user_api_status()
+@router.get("/cold-zone/info")
+def cold_zone_info() -> dict:
+    """Return multi-tier cold zone configuration and daily cycle schedule."""
+    from ..core.map_specs import MAP_SPECS, segment_fff, tier_max_age_for_fff, tier_frame_groups
 
-@router.get("/user-api/logs")
-def user_api_logs(limit: int = Query(default=100)) -> dict:
-    from ..services.user_api_manager import get_user_api_logs
-    lines = get_user_api_logs(limit)
-    return {"lines": lines}
+    result = {}
+    for map_type, spec in MAP_SPECS.items():
+        fffs = segment_fff(spec.fff_segments_full)
+        hot_fffs = [f for f in fffs if tier_max_age_for_fff(spec, f) is None]
+        total_cold = len(fffs) - len(hot_fffs)
 
-@router.post("/user-api/start")
-def user_api_start() -> dict:
-    from ..services.user_api_manager import start_user_api
-    return start_user_api()
+        # Build per-tier frame counts, ranges, and stagger info
+        tiers_info = []
+        for tier_idx, tier in enumerate(spec.cold_tiers):
+            fff_min, max_age_h = tier[0], tier[1]
+            stagger_n = tier[2] if len(tier) > 2 else 1
+            next_fff_min = spec.cold_tiers[tier_idx + 1][0] if tier_idx + 1 < len(spec.cold_tiers) else None
+            tier_fffs = [
+                f for f in fffs
+                if f >= fff_min and (next_fff_min is None or f < next_fff_min)
+            ]
+            frames_per_cycle = (len(tier_fffs) + stagger_n - 1) // stagger_n if stagger_n > 1 else len(tier_fffs)
+            tiers_info.append({
+                "fff_min":           fff_min,
+                "max_age_h":         max_age_h,
+                "stagger_n":         stagger_n,
+                "refresh_per_day":   24 // max_age_h,
+                "frame_count":       len(tier_fffs),
+                "frames_per_cycle":  frames_per_cycle,
+                "fff_range":         f"f{tier_fffs[0]:03d}–f{tier_fffs[-1]:03d}" if tier_fffs else None,
+            })
 
-@router.post("/user-api/stop")
-def user_api_stop() -> dict:
-    from ..services.user_api_manager import stop_user_api
-    return stop_user_api()
+        # Precompute stagger groups (needed for accurate per-cycle frame counts)
+        has_stagger = any(len(t) > 2 and t[2] > 1 for t in spec.cold_tiers)
+        frame_groups = tier_frame_groups(spec, fffs) if has_stagger else {}
+
+        def _tier_fffs_for_idx(tier_idx: int) -> list:
+            tier = spec.cold_tiers[tier_idx]
+            fff_min = tier[0]
+            next_min = spec.cold_tiers[tier_idx + 1][0] if tier_idx + 1 < len(spec.cold_tiers) else None
+            return [f for f in fffs if f >= fff_min and (next_min is None or f < next_min)]
+
+        def _cycle_detail(hour: int) -> dict:
+            if not spec.cold_tiers:
+                return {"action": "full", "frames_gen": len(fffs), "frames_link": 0}
+
+            cycle_slot = hour // 6
+            frames_gen = len(hot_fffs)
+            frames_link = 0
+
+            for tier_idx, tier in enumerate(spec.cold_tiers):
+                max_age_h = tier[1]
+                stagger_n = tier[2] if len(tier) > 2 else 1
+                t_fffs = _tier_fffs_for_idx(tier_idx)
+
+                if stagger_n > 1:
+                    n_groups = stagger_n
+                    group = cycle_slot % n_groups
+                    n_in_group = sum(1 for f in t_fffs if frame_groups.get(f, 0) == group)
+                    frames_gen += n_in_group
+                    frames_link += len(t_fffs) - n_in_group
+                else:
+                    if hour % max_age_h == 0:
+                        frames_gen += len(t_fffs)
+                    else:
+                        frames_link += len(t_fffs)
+
+            if frames_link == 0:
+                action = "full_gen"
+            elif frames_gen == len(hot_fffs):
+                action = "gen_and_link"
+            else:
+                action = "partial_refresh"
+
+            detail: dict = {"action": action, "frames_gen": frames_gen, "frames_link": frames_link}
+            for tier in spec.cold_tiers:
+                if len(tier) > 2 and tier[2] > 1:
+                    detail["stagger_group"] = (hour // 6) % tier[2]
+                    detail["stagger_n"] = tier[2]
+                    break
+            return detail
+
+        schedule_detail = {
+            "00z": _cycle_detail(0),
+            "06z": _cycle_detail(6),
+            "12z": _cycle_detail(12),
+            "18z": _cycle_detail(18),
+        }
+
+        result[map_type] = {
+            "cold_tiers":             tiers_info,
+            "cold_fff_min":           spec.cold_fff_min if spec.cold_tiers else None,
+            "cold_max_age_h":         spec.cold_max_age_h if spec.cold_tiers else None,
+            "total_frames":           len(fffs),
+            "hot_frames":             len(hot_fffs),
+            "cold_frames":            total_cold,
+            "hot_range":              f"f{hot_fffs[0]:03d}–f{hot_fffs[-1]:03d}" if hot_fffs else None,
+            "cold_range":             (f"f{spec.cold_fff_min:03d}–f{fffs[-1]:03d}"
+                                       if spec.cold_tiers and total_cold > 0 else None),
+            # backward-compat string schedule
+            "cycle_schedule": {k: v["action"] for k, v in schedule_detail.items()},
+            # rich schedule with frame counts and stagger info
+            "cycle_schedule_detail":  schedule_detail,
+        }
+    return result
+
+
+# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Benchmark Mode
+# ---------------------------------------------------------------------------
+
+import subprocess
+import sys
+import json
+from pathlib import Path
+
+_benchmark_process = None
+_last_benchmark_mode = "baseline"
+
+@router.post("/benchmark/start")
+def benchmark_start(
+    mode: str = Body(default="baseline"),
+    multi_frame: bool = Body(default=False),
+    cold_frames: int = Body(default=1),
+) -> dict:
+    global _benchmark_process, _last_benchmark_mode
+    if _benchmark_process is not None and _benchmark_process.poll() is None:
+        return {"status": "error", "message": "Benchmark is already running."}
+
+    _last_benchmark_mode = mode
+    cmd = [sys.executable, "-m", "app.benchmark", "--mode", mode]
+    if multi_frame:
+        cmd.append("--multi-frame")
+    if mode == "cold_zone" and cold_frames > 1:
+        cmd += ["--cold-frames", str(cold_frames)]
+
+    _benchmark_process = subprocess.Popen(cmd)
+    return {"status": "started", "pid": _benchmark_process.pid}
+
+@router.get("/benchmark/status")
+def benchmark_status() -> dict:
+    global _benchmark_process, _last_benchmark_mode
+    is_running = _benchmark_process is not None and _benchmark_process.poll() is None
+
+    results = []
+    mode_run = _last_benchmark_mode
+    daily_projection = {}
+    grand_total = {}
+    generated_at = None
+
+    if not is_running:
+        try:
+            if mode_run == "cold_zone":
+                summary_file = Path("benchmark_cold_zone_report.json")
+                if summary_file.exists():
+                    data = json.loads(summary_file.read_text())
+                    results          = data.get("results", [])
+                    daily_projection = data.get("daily_projection", {})
+                    grand_total      = data.get("grand_total", {})
+                    generated_at     = data.get("generated_at")
+            else:
+                summary_file = Path(f"benchmark_first_frame_summary_{mode_run}.json")
+                if not summary_file.exists():
+                    summary_file = Path("benchmark_first_frame_summary.json")
+                if summary_file.exists():
+                    data = json.loads(summary_file.read_text())
+                    results  = data.get("benchmark_results", [])
+                    mode_run = data.get("benchmark_mode", mode_run)
+        except Exception:
+            pass
+
+    status_str = "running" if is_running else ("idle" if _benchmark_process is None else "complete")
+
+    return {
+        "status":           status_str,
+        "mode":             mode_run,
+        "results":          results,
+        "daily_projection": daily_projection,
+        "grand_total":      grand_total,
+        "generated_at":     generated_at,
+    }
+
+
+@router.get("/benchmark/cold-zone-log")
+def cold_zone_log(lines: int = Query(default=200)) -> dict:
+    """Return the most recent cold zone benchmark log file (last N lines)."""
+    import glob as _glob
+    log_files = sorted(_glob.glob("benchmark_cold_zone_*.log"), reverse=True)
+    if not log_files:
+        return {"log_file": None, "lines": []}
+    log_path = Path(log_files[0])
+    try:
+        all_lines = log_path.read_text().splitlines()
+        return {"log_file": log_path.name, "lines": all_lines[-lines:]}
+    except Exception as e:
+        return {"log_file": log_path.name, "lines": [f"Error reading log: {e}"]}
+
+
+# ---------------------------------------------------------------------------
+# Cycle history (cycle_metrics queries)
+# ---------------------------------------------------------------------------
+
+def _cycle_status(rows: list[dict]) -> str:
+    """Derive overall cycle status from cycle_metrics rows of a single run."""
+    if not rows:
+        return "unknown"
+    perm = sum((r.get("permanent_errors") or 0) for r in rows)
+    if perm > 0:
+        return "error"
+    switches = [r.get("pointer_switch_ok") for r in rows]
+    if any(s is False for s in switches):
+        return "error"
+    transient = sum((r.get("transient_errors") or 0) for r in rows)
+    if transient > 0:
+        return "warning"
+    return "ok"
+
+
+@router.get("/cycles")
+def list_cycles(days: int = Query(default=7, ge=1, le=90)) -> list[dict]:
+    """List cycles finished in the last N days, grouped by run_id."""
+    from datetime import datetime, timezone, timedelta
+    from ..core.db import get_cycle_metrics_between
+
+    now = datetime.now(timezone.utc)
+    date_from = (now - timedelta(days=days)).isoformat()
+    date_to = (now + timedelta(hours=1)).isoformat()
+
+    rows = get_cycle_metrics_between(date_from, date_to)
+
+    # Group by run_id
+    by_run: dict[str, list[dict]] = {}
+    for r in rows:
+        by_run.setdefault(r["run_id"], []).append(r)
+
+    cycles = []
+    for run_id, group in by_run.items():
+        starts = [g["started_at"] for g in group if g.get("started_at")]
+        ends = [g["finished_at"] for g in group if g.get("finished_at")]
+        wall = None
+        if starts and ends:
+            try:
+                t0 = datetime.fromisoformat(min(starts).replace("Z", "+00:00"))
+                t1 = datetime.fromisoformat(max(ends).replace("Z", "+00:00"))
+                wall = (t1 - t0).total_seconds()
+            except (ValueError, AttributeError):
+                pass
+        cycles.append({
+            "run_id": run_id,
+            "started_at": min(starts) if starts else None,
+            "finished_at": max(ends) if ends else None,
+            "total_wall_seconds": wall,
+            "maps_done": sum(1 for g in group if g.get("finished_at")),
+            "maps_total": len(group),
+            "total_bytes_uploaded": sum((g.get("bytes_uploaded") or 0) for g in group),
+            "total_bytes_cold": sum(
+                ((g.get("bytes_cold_get") or 0) + (g.get("bytes_cold_put") or 0))
+                for g in group
+            ),
+            "peak_local_staging_bytes": max(
+                (g.get("peak_local_staging_bytes") or 0) for g in group
+            ),
+            "bunny_storage_after_bytes": max(
+                (g.get("bunny_storage_after_bytes") or 0) for g in group
+            ),
+            "transient_errors": sum((g.get("transient_errors") or 0) for g in group),
+            "permanent_errors": sum((g.get("permanent_errors") or 0) for g in group),
+            "status": _cycle_status(group),
+        })
+    cycles.sort(key=lambda c: c["finished_at"] or "", reverse=True)
+    return cycles
+
+
+@router.get("/cycles/{run_id}")
+def get_cycle_detail(run_id: str) -> dict:
+    """Detail of one cycle: aggregate summary + all map rows."""
+    from datetime import datetime
+    from ..core.db import get_cycle_metrics_by_run
+
+    rows = get_cycle_metrics_by_run(run_id)
+    if not rows:
+        raise HTTPException(status_code=404, detail=f"No cycle_metrics for run_id {run_id!r}")
+
+    starts = [r["started_at"] for r in rows if r.get("started_at")]
+    ends = [r["finished_at"] for r in rows if r.get("finished_at")]
+    wall = None
+    if starts and ends:
+        try:
+            t0 = datetime.fromisoformat(min(starts).replace("Z", "+00:00"))
+            t1 = datetime.fromisoformat(max(ends).replace("Z", "+00:00"))
+            wall = (t1 - t0).total_seconds()
+        except (ValueError, AttributeError):
+            pass
+
+    summary = {
+        "run_id": run_id,
+        "started_at": min(starts) if starts else None,
+        "finished_at": max(ends) if ends else None,
+        "total_wall_seconds": wall,
+        "sum_cpu_seconds": sum((r.get("total_wall_seconds") or 0) for r in rows),
+        "maps_done": sum(1 for r in rows if r.get("finished_at")),
+        "maps_total": len(rows),
+        "total_bytes_uploaded": sum((r.get("bytes_uploaded") or 0) for r in rows),
+        "total_bytes_cold_get": sum((r.get("bytes_cold_get") or 0) for r in rows),
+        "total_bytes_cold_put": sum((r.get("bytes_cold_put") or 0) for r in rows),
+        "peak_local_staging_bytes": max(
+            (r.get("peak_local_staging_bytes") or 0) for r in rows
+        ),
+        "bunny_storage_after_bytes": max(
+            (r.get("bunny_storage_after_bytes") or 0) for r in rows
+        ),
+        "transient_errors": sum((r.get("transient_errors") or 0) for r in rows),
+        "permanent_errors": sum((r.get("permanent_errors") or 0) for r in rows),
+        "status": _cycle_status(rows),
+    }
+    return {"run_id": run_id, "summary": summary, "maps": rows}
+
+
+@router.get("/cycles/{run_id}/{map_type}")
+def get_cycle_map_detail(run_id: str, map_type: str) -> dict:
+    """Single cycle_metrics row for (run_id, map_type)."""
+    from ..core.db import get_cycle_metrics_by_run
+
+    rows = get_cycle_metrics_by_run(run_id)
+    for r in rows:
+        if r["map_type"] == map_type:
+            return r
+    raise HTTPException(
+        status_code=404,
+        detail=f"No metric for map_type={map_type!r} in run {run_id!r}",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Bunny analytics + storage
+# ---------------------------------------------------------------------------
+
+@router.get("/bunny/analytics")
+def bunny_analytics(days: int = Query(default=1, ge=1, le=90)) -> dict:
+    """Hourly bunny_analytics_hourly rows + aggregated summary."""
+    from datetime import datetime, timezone, timedelta
+    from ..core.db import get_bunny_analytics_between
+    from ..config import get_settings
+    import json as _json
+
+    cfg = get_settings()
+    if not cfg.BUNNY_ACCOUNT_API_KEY:
+        return {"enabled": False, "rows": [], "summary": {}}
+
+    now = datetime.now(timezone.utc)
+    date_from = (now - timedelta(days=days)).isoformat()
+    date_to = now.isoformat()
+    rows = get_bunny_analytics_between(date_from, date_to)
+
+    if not rows:
+        return {"enabled": True, "rows": [], "summary": {}}
+
+    total_pulls = sum((r.get("pull_requests") or 0) for r in rows)
+    total_bw = sum((r.get("bandwidth_bytes") or 0) for r in rows)
+    total_4xx = sum((r.get("error_4xx") or 0) for r in rows)
+    total_5xx = sum((r.get("error_5xx") or 0) for r in rows)
+    if total_pulls > 0:
+        weighted_hit = sum(
+            (r.get("cache_hit_ratio") or 0) * (r.get("pull_requests") or 0)
+            for r in rows
+        )
+        cache_hit_ratio = weighted_hit / total_pulls
+    else:
+        cache_hit_ratio = 0.0
+
+    country_counter: dict[str, int] = {}
+    for r in rows:
+        try:
+            cs = _json.loads(r.get("top_countries_json") or "[]")
+            for entry in cs:
+                code = entry.get("code", "?")
+                country_counter[code] = country_counter.get(code, 0) + entry.get("requests", 0)
+        except (ValueError, TypeError):
+            continue
+    top_countries = sorted(
+        country_counter.items(), key=lambda kv: kv[1], reverse=True,
+    )[:10]
+
+    peak_row = max(rows, key=lambda r: r.get("pull_requests") or 0)
+    error_rate = ((total_4xx + total_5xx) / total_pulls) if total_pulls else 0.0
+
+    return {
+        "enabled": True,
+        "rows": rows,
+        "summary": {
+            "pulls": total_pulls,
+            "bandwidth_bytes": total_bw,
+            "cache_hit_ratio": cache_hit_ratio,
+            "error_4xx": total_4xx,
+            "error_5xx": total_5xx,
+            "error_rate": error_rate,
+            "top_countries": [
+                {"code": c, "requests": n} for c, n in top_countries
+            ],
+            "peak_hour": peak_row.get("timestamp"),
+            "peak_hour_pulls": peak_row.get("pull_requests"),
+        },
+    }
+
+
+@router.get("/bunny/storage")
+def bunny_storage_used() -> dict:
+    """Live query Bunny Account API for current StorageUsed."""
+    from datetime import datetime, timezone
+    from ..services.bunny_analytics import get_bunny_analytics_client
+
+    client = get_bunny_analytics_client()
+    if client is None:
+        return {"enabled": False, "bytes": 0, "gb": 0.0}
+    try:
+        b = client.get_storage_used()
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Bunny API error: {exc}")
+    return {
+        "enabled": True,
+        "bytes": b,
+        "gb": round(b / 1e9, 3),
+        "measured_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Telegram test + preview
+# ---------------------------------------------------------------------------
+
+@router.post("/telegram/test")
+def telegram_test() -> dict:
+    """Send a test message via Telegram bot to verify config."""
+    from datetime import datetime, timezone
+    from ..services.telegram_reporter import get_telegram_reporter
+
+    reporter = get_telegram_reporter()
+    if reporter is None:
+        return {
+            "sent": False,
+            "error": "Telegram disabled or misconfigured (check TELEGRAM_ENABLED, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID).",
+        }
+    try:
+        ok = reporter.send(
+            f"🧪 *Admin test message*\n"
+            f"Sent at {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}"
+        )
+        return {"sent": bool(ok)}
+    except Exception as exc:
+        return {"sent": False, "error": str(exc)}
+
+
+@router.get("/telegram/preview/{type}")
+def telegram_preview(type: str) -> dict:
+    """Render a sample Telegram alert (per_map | per_cycle | daily) without sending.
+
+    Uses the most recent real cycle_metrics if available, otherwise fake data.
+    """
+    from datetime import datetime, timezone, timedelta
+    from ..core.db import get_cycle_metrics_between, get_cycle_metrics_by_run
+    from ..services.telegram_reporter import (
+        format_per_map_report,
+        format_per_cycle_report,
+        format_daily_report,
+    )
+
+    if type not in ("per_map", "per_cycle", "daily"):
+        raise HTTPException(
+            status_code=400,
+            detail="type must be one of: per_map, per_cycle, daily",
+        )
+
+    now = datetime.now(timezone.utc)
+    recent = get_cycle_metrics_between(
+        (now - timedelta(days=7)).isoformat(),
+        (now + timedelta(hours=1)).isoformat(),
+    )
+
+    if type == "per_map":
+        if recent:
+            md = format_per_map_report(recent[-1])
+        else:
+            md = format_per_map_report({
+                "map_type": "wind_surface", "run_id": "20260510_06z",
+                "started_at": "2026-05-10T12:00:00+00:00",
+                "finished_at": "2026-05-10T12:51:37+00:00",
+                "total_wall_seconds": 3097,
+                "frames_total": 231, "frames_generated": 117, "frames_cold_copied": 114,
+                "chunks_uploaded_ok": 1366, "chunks_uploaded_failed": 0,
+                "bytes_uploaded": 47_500_000_000,
+                "peak_local_staging_bytes": 2_100_000_000,
+                "bunny_storage_after_bytes": 90_300_000_000,
+                "pointer_switch_ok": True,
+                "pointer_switched_at": "2026-05-10T12:51:34+00:00",
+            })
+    elif type == "per_cycle":
+        if recent:
+            run_id = recent[-1]["run_id"]
+            rows = get_cycle_metrics_by_run(run_id)
+            md = format_per_cycle_report(rows)
+        else:
+            md = "(No recent cycle data — preview unavailable)"
+    else:  # daily
+        from ..services.cycle_tracker import _build_daily_report
+        # Yesterday window
+        today_midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        date_from = today_midnight - timedelta(days=1)
+        date_to = today_midnight
+        daily = _build_daily_report(date_from, date_to)
+        md = format_daily_report(daily)
+
+    return {"type": type, "markdown": md}
+
+
+# ---------------------------------------------------------------------------
+# Public config dump (read-only, no secrets)
+# ---------------------------------------------------------------------------
+
+def _mask(value: str, keep: int = 8) -> str:
+    if not value:
+        return ""
+    return value[:keep] + "…" if len(value) > keep else value
+
+
+@router.get("/config/public")
+def config_public() -> dict:
+    """Read-only dump of non-secret config knobs for the admin UI."""
+    from ..config import get_settings
+
+    cfg = get_settings()
+    return {
+        "server": {
+            "HOST": cfg.HOST,
+            "PORT": cfg.PORT,
+            "APP_VERSION": getattr(cfg, "APP_VERSION", "?"),
+        },
+        "tile": {
+            "TILE_WORKERS": cfg.TILE_WORKERS,
+            "TILE_ZOOM_EAGER_MAX": cfg.TILE_ZOOM_EAGER_MAX,
+            "TILE_ZOOM_LAZY_MAX": cfg.TILE_ZOOM_LAZY_MAX,
+            "TILE_CACHE_MB": cfg.TILE_CACHE_MB,
+        },
+        "retention": {
+            "KEEP_CYCLES": cfg.KEEP_CYCLES,
+            "CLOUD_KEEP_CYCLES": cfg.CLOUD_KEEP_CYCLES,
+        },
+        "scheduler": {
+            "SCHEDULER_ENABLED": cfg.SCHEDULER_ENABLED,
+            "CHECK_INTERVAL_MINUTES": cfg.CHECK_INTERVAL_MINUTES,
+        },
+        "bunny": {
+            "BUNNY_ENABLED": cfg.BUNNY_ENABLED,
+            "BUNNY_STORAGE_ZONE": cfg.BUNNY_STORAGE_ZONE,
+            "BUNNY_REGION": cfg.BUNNY_REGION,
+            "BUNNY_PATH_PREFIX": cfg.BUNNY_PATH_PREFIX,
+            "BUNNY_PULL_ZONE_URL": cfg.BUNNY_PULL_ZONE_URL,
+            "BUNNY_MAX_PARALLEL": cfg.BUNNY_MAX_PARALLEL,
+            "BUNNY_RETRY_ATTEMPTS": cfg.BUNNY_RETRY_ATTEMPTS,
+            "BUNNY_TIMEOUT_S": cfg.BUNNY_TIMEOUT_S,
+            "BUNNY_FAIL_FAST": cfg.BUNNY_FAIL_FAST,
+            "BUNNY_DELETE_PREV_AFTER_SWITCH": cfg.BUNNY_DELETE_PREV_AFTER_SWITCH,
+            "BUNNY_API_KEY_MASK": _mask(cfg.BUNNY_API_KEY),
+            "BUNNY_ACCOUNT_API_KEY_MASK": _mask(cfg.BUNNY_ACCOUNT_API_KEY),
+            "BUNNY_PULL_ZONE_ID": cfg.BUNNY_PULL_ZONE_ID,
+            "BUNNY_STORAGE_ZONE_ID": cfg.BUNNY_STORAGE_ZONE_ID,
+        },
+        "telegram": {
+            "TELEGRAM_ENABLED": cfg.TELEGRAM_ENABLED,
+            "TELEGRAM_VERBOSITY": cfg.TELEGRAM_VERBOSITY,
+            "TELEGRAM_CHAT_ID": cfg.TELEGRAM_CHAT_ID,
+            "TELEGRAM_BOT_TOKEN_MASK": _mask(cfg.TELEGRAM_BOT_TOKEN),
+        },
+        "reporting": {
+            "DAILY_REPORT_UTC_HOUR": cfg.DAILY_REPORT_UTC_HOUR,
+            "DAILY_REPORT_UTC_MINUTE": cfg.DAILY_REPORT_UTC_MINUTE,
+            "BUNNY_ANALYTICS_POLL_MIN": cfg.BUNNY_ANALYTICS_POLL_MIN,
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# SSE stream — real-time job status + progress + logs
+# ---------------------------------------------------------------------------
+
+@router.get("/stream")
+async def admin_stream(request: Request):
+    """Server-Sent Events: push job_status, progress, logs in real time.
+
+    Events emitted:
+      - hello   (initial handshake, empty payload)
+      - jobs    (when get_all_job_status output changes)
+      - progress (when get_all_progress output changes)
+      - logs    (incremental new log lines since last seq)
+      - ping    (keepalive every ~20s of idle)
+    """
+    import asyncio
+    import json as _json
+    from ..core.db import get_all_job_status, get_all_progress
+    from ..services.log_buffer import get_lines, get_max_seq
+
+    async def gen():
+        last_log_seq = max(0, get_max_seq() - 50)  # backfill last 50 lines
+        last_jobs_hash = None
+        last_prog_hash = None
+        idle_ticks = 0
+
+        yield "event: hello\ndata: {}\n\n"
+
+        while True:
+            if await request.is_disconnected():
+                break
+
+            emitted = False
+            try:
+                jobs = get_all_job_status()
+                jh = hash(_json.dumps(jobs, sort_keys=True, default=str))
+                if jh != last_jobs_hash:
+                    yield f"event: jobs\ndata: {_json.dumps(jobs, default=str)}\n\n"
+                    last_jobs_hash = jh
+                    emitted = True
+
+                prog = get_all_progress()
+                ph = hash(_json.dumps(prog, sort_keys=True, default=str))
+                if ph != last_prog_hash:
+                    yield f"event: progress\ndata: {_json.dumps(prog, default=str)}\n\n"
+                    last_prog_hash = ph
+                    emitted = True
+
+                new_lines = get_lines(since_seq=last_log_seq, limit=20)
+                if new_lines:
+                    last_log_seq = get_max_seq()
+                    yield (
+                        "event: logs\n"
+                        f"data: {_json.dumps({'max_seq': last_log_seq, 'lines': new_lines}, default=str)}\n\n"
+                    )
+                    emitted = True
+            except Exception as exc:
+                yield f"event: error\ndata: {_json.dumps({'message': str(exc)})}\n\n"
+
+            if emitted:
+                idle_ticks = 0
+            else:
+                idle_ticks += 1
+                if idle_ticks >= 10:  # ~20s with 2s sleep
+                    yield "event: ping\ndata: {}\n\n"
+                    idle_ticks = 0
+
+            await asyncio.sleep(2)
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
+

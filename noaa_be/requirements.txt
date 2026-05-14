@@ -13,6 +13,7 @@ Pillow>=10.3.0          # PNG encode + bicubic resize
 mercantile>=1.2.1       # Web Mercator tile math (lat/lon ↔ z/x/y)
 matplotlib>=3.8.0       # colormaps (turbo, Blues, YlGnBu, etc.)
 rasterio>=1.3.0         # GDAL warp: equirectangular → EPSG:3857 reprojection
+scipy>=1.10.0           # Morphological ops (binary_opening) for precip classifier
 
 # ── Scheduler ─────────────────────────────────────────────────────────────────
 APScheduler>=3.10.4
@@ -20,8 +21,13 @@ APScheduler>=3.10.4
 # ── HTTP (download from NOAA) ─────────────────────────────────────────────────
 # uses stdlib urllib only — no extra dep needed
 
+# ── Bunny.net Storage CDN sync (httpx for parallel uploads) ──────────────────
+httpx>=0.27.0           # Bunny Storage API client
+
 # ── Utilities ─────────────────────────────────────────────────────────────────
 python-dotenv>=1.0.1    # load .env
+psutil>=5.9.0           # hardware metrics monitoring
+zstandard>=0.21.0       # Zstd compression for wind_field WFLD tiles
 
 # ── Testing ───────────────────────────────────────────────────────────────────
 pytest>=7.4.0           # testing framework

@@ -6,9 +6,6 @@
     <title>Weather Core | Admin Dashboard</title>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/@phosphor-icons/web"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
-    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.5/dist/cdn.min.js"></script>
     <style>
         :root {
             --bg-dark: #050b14;
@@ -41,10 +38,6 @@
 
         h1, h2, h3 { font-weight: 600; }
         .mono { font-family: 'JetBrains Mono', monospace; }
-
-        /* Alpine.js */
-        [x-cloak] { display: none !important; }
-        .cycle-row-active { background: rgba(59, 130, 246, 0.08) !important; border-left: 3px solid var(--accent-blue); }
 
         /* Sidebar */
         .sidebar {
@@ -194,207 +187,10 @@
         @keyframes pulse-blue { 0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4); } 70% { box-shadow: 0 0 0 8px rgba(59, 130, 246, 0); } 100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); } }
         @keyframes pulse-swap { 0%,100% { opacity:1; } 50% { opacity:0.5; } }
         
-        ::-webkit-scrollbar { width: 10px; height: 10px; }
+        ::-webkit-scrollbar { width: 8px; }
         ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: linear-gradient(180deg, rgba(96,165,250,0.25), rgba(139,92,246,0.25)); border-radius: 100px; }
-        ::-webkit-scrollbar-thumb:hover { background: linear-gradient(180deg, rgba(96,165,250,0.45), rgba(139,92,246,0.45)); }
-
-        /* ==========================================================
-           Weather Theme — atmospheric depth + animated sky
-           ========================================================== */
-        :root {
-            --sky-1: #0a1628;        /* deep night */
-            --sky-2: #0d2240;        /* dusk */
-            --sky-3: #102b4a;        /* horizon */
-            --aurora-blue: #38bdf8;
-            --aurora-purple: #a78bfa;
-            --aurora-pink: #f472b6;
-            --sun-warm: #fbbf24;
-            --sun-glow: #f59e0b;
-            --storm: #6366f1;
-        }
-
-        body {
-            background:
-                radial-gradient(ellipse at 20% -10%, rgba(56,189,248,0.18), transparent 50%),
-                radial-gradient(ellipse at 80% 110%, rgba(167,139,250,0.18), transparent 55%),
-                radial-gradient(ellipse at 50% 50%, rgba(244,114,182,0.06), transparent 60%),
-                linear-gradient(180deg, var(--sky-1) 0%, var(--sky-2) 50%, var(--sky-3) 100%);
-            background-attachment: fixed;
-            background-size: cover;
-        }
-
-        /* Subtle starfield */
-        body::before {
-            content: "";
-            position: fixed; inset: 0;
-            background-image:
-                radial-gradient(1px 1px at 20% 30%, rgba(255,255,255,0.5), transparent),
-                radial-gradient(1px 1px at 60% 70%, rgba(255,255,255,0.4), transparent),
-                radial-gradient(1px 1px at 80% 20%, rgba(255,255,255,0.6), transparent),
-                radial-gradient(1px 1px at 40% 90%, rgba(255,255,255,0.3), transparent),
-                radial-gradient(2px 2px at 90% 50%, rgba(255,255,255,0.4), transparent),
-                radial-gradient(1px 1px at 15% 65%, rgba(255,255,255,0.4), transparent),
-                radial-gradient(2px 2px at 70% 35%, rgba(255,255,255,0.35), transparent);
-            background-size: 100% 100%;
-            opacity: 0.7;
-            z-index: -2;
-            animation: twinkle 8s ease-in-out infinite;
-            pointer-events: none;
-        }
-        @keyframes twinkle {
-            0%, 100% { opacity: 0.5; }
-            50%      { opacity: 0.85; }
-        }
-
-        /* Drifting clouds across the top of the viewport */
-        body::after {
-            content: "";
-            position: fixed; top: 0; left: -10%; right: -10%; height: 320px;
-            background:
-                radial-gradient(ellipse 220px 70px at 15% 40%, rgba(255,255,255,0.06), transparent 70%),
-                radial-gradient(ellipse 300px 90px at 55% 30%, rgba(255,255,255,0.05), transparent 70%),
-                radial-gradient(ellipse 180px 60px at 85% 50%, rgba(255,255,255,0.07), transparent 70%);
-            filter: blur(6px);
-            opacity: 0.7;
-            z-index: -1;
-            animation: cloudDrift 80s linear infinite;
-            pointer-events: none;
-        }
-        @keyframes cloudDrift {
-            from { transform: translateX(-5%); }
-            to   { transform: translateX(5%); }
-        }
-
-        /* Refined ambient glow — bigger and softer */
-        .ambient-glow { opacity: 0.35; }
-        .glow-1 { background: radial-gradient(circle, var(--aurora-blue), transparent 60%); }
-        .glow-2 { background: radial-gradient(circle, var(--aurora-purple), transparent 60%); }
-
-        /* Sidebar — sunset gradient stripe on the right edge */
-        .sidebar {
-            position: relative;
-            background: linear-gradient(180deg, rgba(8,15,28,0.85) 0%, rgba(13,34,64,0.85) 100%);
-        }
-        .sidebar::after {
-            content: "";
-            position: absolute; top: 10%; right: -1px; bottom: 10%; width: 1px;
-            background: linear-gradient(180deg, transparent, var(--aurora-blue), var(--aurora-purple), transparent);
-            opacity: 0.4;
-        }
-        .logo-area i { animation: hurricaneSpin 18s linear infinite; transform-origin: center; display: inline-block; }
-        @keyframes hurricaneSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-
-        /* Nav items — weather-themed hover */
-        .nav-item {
-            transition: background 0.25s, color 0.2s, transform 0.2s, border-color 0.25s;
-        }
-        .nav-item:hover { transform: translateX(2px); }
-        .nav-item.active {
-            background: linear-gradient(90deg, rgba(56,189,248,0.18), rgba(139,92,246,0.10));
-            border: 1px solid rgba(56,189,248,0.35);
-            box-shadow: 0 4px 18px -6px rgba(56,189,248,0.4), inset 0 0 0 1px rgba(255,255,255,0.04);
-        }
-        .nav-item.active i { color: var(--aurora-blue); filter: drop-shadow(0 0 6px rgba(56,189,248,0.5)); }
-
-        /* Cards — atmospheric glass with cloud gradient */
-        .card {
-            background:
-                linear-gradient(135deg, rgba(255,255,255,0.04), rgba(255,255,255,0.01)),
-                rgba(13, 24, 40, 0.55);
-            border: 1px solid rgba(148, 184, 240, 0.10);
-            box-shadow:
-                0 24px 48px -16px rgba(0,0,0,0.5),
-                0 0 0 1px rgba(255,255,255,0.02) inset,
-                0 1px 0 rgba(255,255,255,0.06) inset;
-        }
-        .card:hover { border-color: rgba(148, 184, 240, 0.18); }
-        .card.interactive:hover {
-            transform: translateY(-3px);
-            box-shadow:
-                0 32px 56px -16px rgba(0,0,0,0.6),
-                0 0 30px -8px rgba(56,189,248,0.25),
-                0 0 0 1px rgba(255,255,255,0.04) inset;
-        }
-        .card-title i {
-            filter: drop-shadow(0 0 8px currentColor);
-            opacity: 0.95;
-        }
-
-        /* Big numbers — luminous aurora */
-        .big-number {
-            background: linear-gradient(135deg, #ffffff 0%, #cfe7ff 70%, #93c5fd 100%);
-            -webkit-background-clip: text; background-clip: text;
-            -webkit-text-fill-color: transparent;
-            text-shadow: 0 0 30px rgba(56,189,248,0.15);
-            letter-spacing: -0.02em;
-        }
-        .stat-value {
-            background: linear-gradient(135deg, #ffffff 0%, #e0f2fe 100%);
-            -webkit-background-clip: text; background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-
-        /* Status badges — weather metaphors */
-        .status-badge.idle    { background: rgba(148, 163, 184, 0.12); color: #cbd5e1; border: 1px solid rgba(203,213,225,0.15); }
-        .status-badge.running {
-            background: linear-gradient(90deg, rgba(56,189,248,0.18), rgba(139,92,246,0.18));
-            color: #93c5fd;
-            border: 1px solid rgba(56,189,248,0.4);
-            animation: pulse-blue 2.4s ease-in-out infinite;
-        }
-        .status-badge.ok      { background: rgba(16,185,129,0.12); color: #6ee7b7; border: 1px solid rgba(16,185,129,0.3); }
-        .status-badge.error   { background: rgba(239,68,68,0.12); color: #fca5a5; border: 1px solid rgba(239,68,68,0.35); }
-
-        /* Weather chip — drop-in component */
-        .weather-chip {
-            display: inline-flex; align-items: center; gap: 10px;
-            padding: 10px 16px;
-            background: linear-gradient(135deg, rgba(56,189,248,0.10), rgba(139,92,246,0.08));
-            border: 1px solid rgba(148, 184, 240, 0.18);
-            border-radius: 100px;
-            font-weight: 600; font-size: 14px;
-            box-shadow: 0 0 0 1px rgba(255,255,255,0.03) inset, 0 8px 24px -8px rgba(56,189,248,0.25);
-        }
-        .weather-chip i { font-size: 22px; }
-        .weather-chip.is-sunny  i { color: var(--sun-warm); filter: drop-shadow(0 0 10px rgba(251,191,36,0.6)); animation: pulse-swap 3s ease-in-out infinite; }
-        .weather-chip.is-cloudy i { color: #94a3b8; }
-        .weather-chip.is-stormy i { color: #ef4444; filter: drop-shadow(0 0 10px rgba(239,68,68,0.5)); animation: pulse-swap 1.6s ease-in-out infinite; }
-        .weather-chip.is-active i { color: var(--aurora-blue); filter: drop-shadow(0 0 10px rgba(56,189,248,0.6)); animation: pulse-swap 1.8s ease-in-out infinite; }
-
-        /* Forecast strip — last cycles as weather glyphs */
-        .forecast-strip { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
-        .forecast-tile {
-            flex: 0 0 auto;
-            min-width: 86px;
-            padding: 12px 14px;
-            border-radius: 14px;
-            background: linear-gradient(135deg, rgba(255,255,255,0.04), rgba(255,255,255,0.01));
-            border: 1px solid rgba(148, 184, 240, 0.10);
-            text-align: center;
-        }
-        .forecast-tile .ft-icon  { font-size: 22px; margin-bottom: 4px; display: block; }
-        .forecast-tile .ft-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
-        .forecast-tile .ft-value { font-size: 13px; font-weight: 600; color: var(--text-main); margin-top: 2px; font-family: 'JetBrains Mono', monospace; }
-        .forecast-tile.is-ok      .ft-icon { color: var(--sun-warm); filter: drop-shadow(0 0 6px rgba(251,191,36,0.5)); }
-        .forecast-tile.is-warning .ft-icon { color: #94a3b8; }
-        .forecast-tile.is-error   .ft-icon { color: #f87171; filter: drop-shadow(0 0 6px rgba(239,68,68,0.5)); }
-
-        /* Pulse-glow animation for active running things */
-        @keyframes auroraSweep {
-            0%   { background-position: 0% 50%; }
-            50%  { background-position: 100% 50%; }
-            100% { background-position: 0% 50%; }
-        }
-        .aurora-bar {
-            height: 3px; border-radius: 2px;
-            background: linear-gradient(90deg, var(--aurora-blue), var(--aurora-purple), var(--aurora-pink), var(--aurora-blue));
-            background-size: 300% 100%;
-            animation: auroraSweep 8s ease infinite;
-        }
-
-        /* Toast container slight refinement (if present) */
-        #toast-container { z-index: 2000; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
     </style>
 </head>
 <body>
@@ -407,59 +203,22 @@
         </div>
         
         <div class="nav-menu">
-            <div class="nav-item active" onclick="switchView('view-overview', this)"><i class="ph ph-cloud-sun"></i> Overview</div>
-            <div class="nav-item" onclick="switchView('view-pipeline', this)"><i class="ph ph-wind"></i> Pipeline Runs <span class="badge-tag tag-real">Live</span></div>
-            <div class="nav-item" onclick="switchView('view-manual', this)"><i class="ph ph-rainbow"></i> Manual Control <span class="badge-tag tag-real">Live</span></div>
-            <div class="nav-item" onclick="switchView('view-logs', this)"><i class="ph ph-cloud-lightning"></i> Logs &amp; Alerts <span class="badge-tag tag-real">Live</span></div>
-            <div class="nav-item" onclick="switchView('view-storage', this)"><i class="ph ph-database"></i> Storage &amp; DB <span class="badge-tag tag-real">Live</span></div>
-            <div class="nav-item" onclick="switchView('view-benchmark', this)"><i class="ph ph-thermometer"></i> Benchmark <span class="badge-tag tag-real">Live</span></div>
-            <div class="nav-item" onclick="switchView('view-cycles', this)"><i class="ph ph-cloud-fog"></i> Cycle History <span class="badge-tag tag-real">Live</span></div>
-            <div class="nav-item" onclick="switchView('view-cdn', this)"><i class="ph ph-globe-hemisphere-east"></i> CDN Analytics <span class="badge-tag tag-real">Live</span></div>
-            <div class="nav-item" onclick="switchView('view-settings', this)"><i class="ph ph-gear-six"></i> Settings &amp; Alerts <span class="badge-tag tag-real">Live</span></div>
+            <div class="nav-item active" onclick="switchView('view-overview', this)"><i class="ph ph-squares-four"></i> Overview</div>
+            <div class="nav-item" onclick="switchView('view-pipeline', this)"><i class="ph ph-git-merge"></i> Pipeline Runs <span class="badge-tag tag-real">Real</span></div>
+            <div class="nav-item" onclick="switchView('view-manual', this)"><i class="ph ph-game-controller"></i> Manual Control <span class="badge-tag tag-real">Real</span></div>
+            <div class="nav-item" onclick="switchView('view-logs', this)"><i class="ph ph-terminal-window"></i> Logs & Alerts <span class="badge-tag tag-real">Real</span></div>
+            <div class="nav-item" onclick="switchView('view-api', this)"><i class="ph ph-users"></i> API Health <span class="badge-tag tag-real">Real</span></div>
+            <div class="nav-item" onclick="switchView('view-storage', this)"><i class="ph ph-database"></i> Storage & DB <span class="badge-tag tag-real">Real</span></div>
+            <div class="nav-item" onclick="switchView('view-benchmark', this)"><i class="ph ph-speedometer"></i> Benchmark <span class="badge-tag tag-real">Real</span></div>
         </div>
     </nav>
 
     <main class="main-content">
         <!-- 1. OVERVIEW -->
-        <div id="view-overview" class="view-panel active" x-data="overviewWeather()" x-init="init()">
-            <div class="view-header" style="flex-direction: column; align-items: stretch; gap: 16px;">
-                <div style="display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap;">
-                    <div>
-                        <div style="font-size: 13px; color: var(--text-muted); letter-spacing: 0.6px; text-transform: uppercase; font-weight: 600;">
-                            <i class="ph ph-map-pin"></i> NOAA · GFS · Bunny CDN
-                        </div>
-                        <h2 class="view-title" style="margin-top: 6px;">
-                            <i class="ph-fill ph-cloud-sun" style="color: var(--sun-warm); filter: drop-shadow(0 0 12px rgba(251,191,36,0.4));"></i>
-                            Weather Core
-                        </h2>
-                    </div>
-                    <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
-                        <span class="weather-chip" :class="`is-${condition.kind}`" x-cloak>
-                            <i :class="`ph ${condition.icon}`"></i>
-                            <span x-text="condition.label"></span>
-                        </span>
-                        <span class="badge-tag tag-real" style="font-size: 12px; padding: 6px 14px;" x-text="now"></span>
-                    </div>
-                </div>
-                <div class="aurora-bar"></div>
-
-                <!-- Forecast strip — last 6 cycles -->
-                <div x-show="forecast.length > 0" x-cloak>
-                    <div style="font-size: 11px; color: var(--text-muted); letter-spacing: 0.5px; text-transform: uppercase; font-weight: 600; margin-bottom: 8px;">
-                        <i class="ph ph-calendar-blank"></i> Recent forecast cycles
-                    </div>
-                    <div class="forecast-strip">
-                        <template x-for="c in forecast" :key="c.run_id">
-                            <div class="forecast-tile" :class="`is-${c.status}`"
-                                 @click="document.querySelectorAll('.nav-item')[6].click()"
-                                 style="cursor: pointer;" :title="c.run_id">
-                                <i class="ph ft-icon" :class="forecastIcon(c.status)"></i>
-                                <div class="ft-label" x-text="formatCycleLabel(c.run_id)"></div>
-                                <div class="ft-value" x-text="formatDur(c.total_wall_seconds)"></div>
-                            </div>
-                        </template>
-                    </div>
-                </div>
+        <div id="view-overview" class="view-panel active">
+            <div class="view-header">
+                <h2 class="view-title">System Overview</h2>
+                <div class="badge-tag tag-real" style="font-size: 13px; padding: 6px 16px;">System Operational</div>
             </div>
             
             <div class="overview-grid">
@@ -483,8 +242,18 @@
                     <div class="sub-text">New log entries in session</div>
                 </div>
 
-                <!-- Storage & DB (Real) -->
+                <!-- API Health (Real) -->
                 <div class="card interactive" onclick="document.querySelectorAll('.nav-item')[4].click()">
+                    <div class="card-header">
+                        <div class="card-title"><i class="ph ph-users" style="color: var(--accent-cyan)"></i> User API</div>
+                        <span class="badge-tag tag-real">Real</span>
+                    </div>
+                    <div class="big-number" id="overview-api-status">--</div>
+                    <div class="sub-text" id="overview-api-uptime"><i class="ph ph-clock"></i> Uptime: --</div>
+                </div>
+
+                <!-- Storage & DB (Real) -->
+                <div class="card interactive" onclick="document.querySelectorAll('.nav-item')[5].click()">
                     <div class="card-header">
                         <div class="card-title"><i class="ph ph-database" style="color: var(--accent-purple)"></i> Storage & DB</div>
                         <span class="badge-tag tag-real">Real</span>
@@ -567,6 +336,7 @@
                         <label style="display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;"><input type="checkbox" value="temperature_feels_like" class="map-cb"> Temperature</label>
                         <label style="display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;"><input type="checkbox" value="rain_basic" class="map-cb"> Rain Basic</label>
                         <label style="display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;"><input type="checkbox" value="rain_advanced" class="map-cb" checked> Rain Adv</label>
+                        <label style="display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;"><input type="checkbox" value="cloud_total" class="map-cb"> Cloud Total</label>
                         <label style="display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;"><input type="checkbox" value="snow_depth" class="map-cb"> Snow Depth</label>
                         <label style="display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;"><input type="checkbox" value="wind_surface" class="map-cb" checked> Wind Surf</label>
                     </div>
@@ -591,12 +361,8 @@
                             <i class="ph ph-stack" style="font-size: 20px; color: var(--accent-purple);"></i> 3. Generate
                         </button>
                         
-                        <button class="btn btn-outline" style="justify-content: flex-start; padding: 12px 16px;" onclick="runManualStep(4)" title="Kiểm tra tiles ở local disk. Chú ý: Auto mode xóa tiles sau khi xong!">
+                        <button class="btn btn-outline" style="justify-content: flex-start; padding: 12px 16px;" onclick="runManualStep(4)">
                             <i class="ph ph-database-check" style="font-size: 20px; color: var(--accent-green);"></i> 4. Verify DB
-                        </button>
-                        
-                        <button class="btn btn-outline" style="justify-content: flex-start; padding: 12px 16px;" onclick="runManualStep(5)" title="Trỏ pointer _current.json trên Bunny vào Run ID này">
-                            <i class="ph ph-cloud-arrow-up" style="font-size: 20px; color: var(--accent-orange);"></i> 5. Finalize Bunny
                         </button>
                         
                         <button class="btn btn-primary" style="justify-content: center; margin-top: 12px;" onclick="runManualJobFull()">
@@ -624,6 +390,47 @@
                 <h2 class="view-title">System Logs & Alerts <span class="badge-tag tag-real">Real Data</span></h2>
             </div>
             <div class="terminal" id="terminalLog"></div>
+        </div>
+
+        <!-- 5. API HEALTH (REAL) -->
+        <div id="view-api" class="view-panel">
+            <div class="view-header">
+                <h2 class="view-title">User API Monitor <span class="badge-tag tag-real">Real Data</span></h2>
+                <div style="display: flex; gap: 12px;">
+                    <button class="btn btn-primary" style="width: auto; padding: 10px 20px;" onclick="startUserApi()">
+                        <i class="ph ph-play"></i> Start API
+                    </button>
+                    <button class="btn btn-outline" style="width: auto; padding: 10px 20px; color: var(--accent-red); border-color: rgba(239, 68, 68, 0.3);" onclick="stopUserApi()">
+                        <i class="ph ph-stop"></i> Stop API
+                    </button>
+                </div>
+            </div>
+            <div class="stat-grid" style="margin-bottom: 24px;">
+                <div class="stat-box">
+                    <div class="stat-label">Status</div>
+                    <div class="stat-value" id="api-detail-status">Offline</div>
+                    <div class="meta-val" id="api-detail-icon"><i class="ph ph-power"></i> Stopped</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-label">Uptime</div>
+                    <div class="stat-value" id="api-detail-uptime">0s</div>
+                    <div class="meta-val"><i class="ph ph-clock"></i> Running Time</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-label">Process ID</div>
+                    <div class="stat-value" id="api-detail-pid">---</div>
+                    <div class="meta-val"><i class="ph ph-cpu"></i> System PID</div>
+                </div>
+            </div>
+            <div class="card" style="padding: 0; overflow: hidden; display: flex; flex-direction: column; height: calc(100vh - 400px);">
+                <div class="card-header" style="padding: 16px 24px; margin: 0; border-bottom: 1px solid rgba(255,255,255,0.05); background: rgba(0,0,0,0.2);">
+                    <div class="card-title"><i class="ph ph-terminal" style="color: var(--accent-cyan);"></i> API Output Logs</div>
+                    <button class="btn btn-ghost" style="padding: 4px 8px; font-size: 12px; width: auto;" onclick="document.getElementById('userApiLogs').innerHTML=''">Clear</button>
+                </div>
+                <div class="terminal" id="userApiLogs" style="flex: 1; border-radius: 0; margin: 0; border: none; height: auto;">
+                    <div style="color: var(--text-muted);">Waiting for logs...</div>
+                </div>
+            </div>
         </div>
 
         <!-- 6. STORAGE (REAL) -->
@@ -875,315 +682,6 @@
             </div>
 
         </div>
-
-        <!-- 8. CYCLE HISTORY -->
-        <div id="view-cycles" class="view-panel" x-data="cycleHistoryView()" x-init="init()">
-            <div class="view-header">
-                <h2 class="view-title"><i class="ph ph-clock-counter-clockwise"></i> Cycle History</h2>
-                <div style="display: flex; gap: 12px; align-items: center;">
-                    <select x-model.number="days" @change="fetchCycles()"
-                            style="background: var(--card-bg); color: var(--text-main); border: 1px solid var(--card-border); padding: 8px 12px; border-radius: 8px;">
-                        <option :value="1">Last 1 day</option>
-                        <option :value="7">Last 7 days</option>
-                        <option :value="30">Last 30 days</option>
-                    </select>
-                    <button @click="fetchCycles()"
-                            style="background: var(--accent-blue); color: white; border: 0; padding: 8px 16px; border-radius: 8px; cursor: pointer;">
-                        <i class="ph ph-arrow-clockwise"></i> Refresh
-                    </button>
-                </div>
-            </div>
-
-            <!-- Live cycle banner (when any map is running) -->
-            <div x-show="hasActiveCycle()" class="card" style="margin-bottom: 24px; border-color: rgba(59, 130, 246, 0.3);">
-                <div class="card-header">
-                    <div class="card-title"><i class="ph ph-pulse"></i> Live Cycle</div>
-                    <span class="badge-tag tag-real">Streaming</span>
-                </div>
-                <template x-for="(p, mt) in $store.adminLive.progress" :key="mt">
-                    <div x-show="p.step !== 'done' && p.step !== 'idle'"
-                         style="display: grid; grid-template-columns: 180px 100px 1fr 100px; gap: 12px; align-items: center; padding: 6px 0;">
-                        <span class="mono" x-text="mt"></span>
-                        <span x-text="p.step" style="color: var(--text-muted); font-size: 13px;"></span>
-                        <div style="background: rgba(255,255,255,0.05); border-radius: 100px; height: 8px; overflow: hidden;">
-                            <div :style="`width: ${p.frames_total ? (p.frames_done/p.frames_total*100) : 0}%; background: var(--accent-blue); height: 100%; transition: width 0.3s;`"></div>
-                        </div>
-                        <span class="mono" x-text="`${p.frames_done||0}/${p.frames_total||0}`" style="font-size: 12px; text-align: right;"></span>
-                    </div>
-                </template>
-            </div>
-
-            <div style="display: grid; grid-template-columns: 380px 1fr; gap: 24px;">
-                <!-- Cycle list -->
-                <div class="card" style="padding: 0; overflow: hidden;">
-                    <div style="padding: 16px 20px; border-bottom: 1px solid var(--card-border);">
-                        <div class="card-title"><i class="ph ph-list"></i> Cycles (<span x-text="cycles.length"></span>)</div>
-                    </div>
-                    <div style="max-height: 70vh; overflow-y: auto;">
-                        <template x-for="c in cycles" :key="c.run_id">
-                            <div @click="selectCycle(c.run_id)"
-                                 :class="selectedRunId === c.run_id ? 'cycle-row-active' : ''"
-                                 style="padding: 14px 20px; border-bottom: 1px solid rgba(255,255,255,0.04); cursor: pointer; transition: background 0.15s;"
-                                 @mouseover="$el.style.background='rgba(255,255,255,0.03)'"
-                                 @mouseleave="$el.style.background = (selectedRunId === c.run_id ? 'rgba(59,130,246,0.08)' : 'transparent')">
-                                <div style="display: flex; justify-content: space-between; align-items: center;">
-                                    <span class="mono" x-text="c.run_id" style="font-weight: 600;"></span>
-                                    <span x-text="statusIcon(c.status)" :style="`color: ${statusColor(c.status)}`"></span>
-                                </div>
-                                <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
-                                    <span x-text="formatTs(c.finished_at)"></span> · <span x-text="formatDuration(c.total_wall_seconds)"></span>
-                                </div>
-                                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">
-                                    <span x-text="`${c.maps_done}/${c.maps_total} maps`"></span> ·
-                                    <span x-text="`${formatBytes(c.total_bytes_uploaded)} push`"></span>
-                                </div>
-                            </div>
-                        </template>
-                        <div x-show="cycles.length === 0 && !loading" style="padding: 32px; text-align: center; color: var(--text-muted);">
-                            No cycles in last <span x-text="days"></span> day(s)
-                        </div>
-                        <div x-show="loading" style="padding: 32px; text-align: center; color: var(--text-muted);">
-                            <i class="ph ph-spinner ph-spin"></i> Loading…
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Cycle drill-down -->
-                <div>
-                    <div x-show="!selectedCycle" class="card" style="padding: 60px; text-align: center; color: var(--text-muted);">
-                        <i class="ph ph-mouse-simple" style="font-size: 48px; opacity: 0.4;"></i>
-                        <div style="margin-top: 12px;">Select a cycle to view stage breakdown</div>
-                    </div>
-                    <div x-show="selectedCycle" x-cloak>
-                        <!-- Summary strip -->
-                        <div class="card" style="margin-bottom: 16px;">
-                            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px;">
-                                <div>
-                                    <div class="stat-label">Wall time</div>
-                                    <div class="stat-value" style="font-size: 24px;" x-text="formatDuration(selectedCycle?.summary?.total_wall_seconds)"></div>
-                                </div>
-                                <div>
-                                    <div class="stat-label">Push GB</div>
-                                    <div class="stat-value" style="font-size: 24px;" x-text="formatBytes(selectedCycle?.summary?.total_bytes_uploaded)"></div>
-                                </div>
-                                <div>
-                                    <div class="stat-label">Cold transit</div>
-                                    <div class="stat-value" style="font-size: 24px;"
-                                         x-text="formatBytes((selectedCycle?.summary?.total_bytes_cold_get||0) + (selectedCycle?.summary?.total_bytes_cold_put||0))"></div>
-                                </div>
-                                <div>
-                                    <div class="stat-label">Bunny storage</div>
-                                    <div class="stat-value" style="font-size: 24px;" x-text="formatBytes(selectedCycle?.summary?.bunny_storage_after_bytes)"></div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Gantt chart -->
-                        <div class="card" style="margin-bottom: 16px;">
-                            <div class="card-title" style="margin-bottom: 16px;"><i class="ph ph-chart-bar"></i> Stage timeline</div>
-                            <div style="position: relative; height: 380px;">
-                                <canvas x-ref="ganttCanvas"></canvas>
-                            </div>
-                        </div>
-
-                        <!-- Per-map cards -->
-                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 12px;">
-                            <template x-for="m in (selectedCycle?.maps || [])" :key="m.map_type">
-                                <div class="map-card" style="padding: 16px;">
-                                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                                        <span class="mono" style="font-weight: 600;" x-text="m.map_type"></span>
-                                        <span x-text="m.pointer_switch_ok === 1 || m.pointer_switch_ok === true ? '✓' : (m.pointer_switch_ok === 0 || m.pointer_switch_ok === false ? '✗' : '?')"
-                                              :style="`color: ${m.pointer_switch_ok ? 'var(--accent-green)' : 'var(--accent-red)'}; font-size: 18px;`"></span>
-                                    </div>
-                                    <div style="font-size: 12px; color: var(--text-muted); display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px;">
-                                        <span>Wall</span><span class="mono" x-text="formatDuration(m.total_wall_seconds)"></span>
-                                        <span>Frames</span><span class="mono" x-text="`${m.frames_generated||0}+${m.frames_cold_copied||0}`"></span>
-                                        <span>Push</span><span class="mono" x-text="formatBytes(m.bytes_uploaded)"></span>
-                                        <span>Peak STAGING</span><span class="mono" x-text="formatBytes(m.peak_local_staging_bytes)"></span>
-                                        <span>Errors</span><span class="mono" x-text="`${m.transient_errors||0}/${m.permanent_errors||0}`"></span>
-                                    </div>
-                                </div>
-                            </template>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- 9. CDN ANALYTICS -->
-        <div id="view-cdn" class="view-panel" x-data="cdnAnalyticsView()" x-init="init()">
-            <div class="view-header">
-                <h2 class="view-title"><i class="ph ph-globe-hemisphere-east"></i> CDN Analytics</h2>
-                <div style="display: flex; gap: 12px; align-items: center;">
-                    <select x-model.number="days" @change="fetchAll()"
-                            style="background: var(--card-bg); color: var(--text-main); border: 1px solid var(--card-border); padding: 8px 12px; border-radius: 8px;">
-                        <option :value="1">Last 24 hours</option>
-                        <option :value="7">Last 7 days</option>
-                        <option :value="30">Last 30 days</option>
-                    </select>
-                    <button @click="fetchAll()"
-                            style="background: var(--accent-blue); color: white; border: 0; padding: 8px 16px; border-radius: 8px; cursor: pointer;">
-                        <i class="ph ph-arrow-clockwise"></i> Refresh
-                    </button>
-                </div>
-            </div>
-
-            <div x-show="!enabled" class="card" style="padding: 40px; text-align: center; color: var(--text-muted);">
-                <i class="ph ph-warning" style="font-size: 48px; color: var(--accent-red); opacity: 0.6;"></i>
-                <h3 style="margin-top: 16px;">Bunny Analytics Disabled</h3>
-                <p>Set <span class="mono">BUNNY_ACCOUNT_API_KEY</span>, <span class="mono">BUNNY_PULL_ZONE_ID</span>, <span class="mono">BUNNY_STORAGE_ZONE_ID</span> in <span class="mono">.env</span> to enable.</p>
-            </div>
-
-            <div x-show="enabled" x-cloak>
-                <!-- Top stat cards -->
-                <div class="overview-grid" style="margin-bottom: 24px;">
-                    <div class="card">
-                        <div class="card-title"><i class="ph ph-arrow-down-right"></i> Pull Requests</div>
-                        <div class="big-number" x-text="formatNumber(summary.pulls)"></div>
-                        <div class="sub-text"><span x-text="`Last ${days}d`"></span></div>
-                    </div>
-                    <div class="card">
-                        <div class="card-title"><i class="ph ph-cloud-arrow-down"></i> Bandwidth</div>
-                        <div class="big-number" x-text="formatBytes(summary.bandwidth_bytes)"></div>
-                        <div class="sub-text">Egress to clients</div>
-                    </div>
-                    <div class="card">
-                        <div class="card-title"><i class="ph ph-lightning"></i> Cache Hit</div>
-                        <div class="big-number" x-text="((summary.cache_hit_ratio||0) * 100).toFixed(1) + '%'"></div>
-                        <div class="sub-text" :style="`color: ${(summary.cache_hit_ratio||0) > 0.9 ? 'var(--accent-green)' : 'var(--accent-red)'}`"
-                             x-text="(summary.cache_hit_ratio||0) > 0.9 ? '✓ Healthy' : '⚠ Low'"></div>
-                    </div>
-                    <div class="card">
-                        <div class="card-title"><i class="ph ph-warning-circle"></i> Error Rate</div>
-                        <div class="big-number" x-text="((summary.error_rate||0) * 100).toFixed(2) + '%'"></div>
-                        <div class="sub-text" x-text="`${summary.error_4xx||0} 4xx · ${summary.error_5xx||0} 5xx`"></div>
-                    </div>
-                    <div class="card">
-                        <div class="card-title"><i class="ph ph-database"></i> Bunny Storage</div>
-                        <div class="big-number" x-text="formatBytes(storage.bytes)"></div>
-                        <div class="sub-text">Live size</div>
-                    </div>
-                    <div class="card">
-                        <div class="card-title"><i class="ph ph-clock"></i> Peak Hour</div>
-                        <div class="big-number" style="font-size: 24px;" x-text="formatHour(summary.peak_hour)"></div>
-                        <div class="sub-text" x-text="`${formatNumber(summary.peak_hour_pulls||0)} pulls`"></div>
-                    </div>
-                </div>
-
-                <!-- Charts -->
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;">
-                    <div class="card">
-                        <div class="card-title"><i class="ph ph-chart-line"></i> Hourly Traffic</div>
-                        <div style="position: relative; height: 280px; margin-top: 12px;">
-                            <canvas x-ref="trafficCanvas"></canvas>
-                        </div>
-                    </div>
-                    <div class="card">
-                        <div class="card-title"><i class="ph ph-chart-bar"></i> Errors by hour</div>
-                        <div style="position: relative; height: 280px; margin-top: 12px;">
-                            <canvas x-ref="errorCanvas"></canvas>
-                        </div>
-                    </div>
-                </div>
-
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
-                    <div class="card">
-                        <div class="card-title"><i class="ph ph-chart-line-up"></i> Cache Hit Trend</div>
-                        <div style="position: relative; height: 240px; margin-top: 12px;">
-                            <canvas x-ref="cacheCanvas"></canvas>
-                        </div>
-                    </div>
-                    <div class="card">
-                        <div class="card-title"><i class="ph ph-flag"></i> Top Countries</div>
-                        <div style="position: relative; height: 240px; margin-top: 12px;">
-                            <canvas x-ref="countryCanvas"></canvas>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- 10. SETTINGS & ALERTS -->
-        <div id="view-settings" class="view-panel" x-data="settingsView()" x-init="init()">
-            <div class="view-header">
-                <h2 class="view-title"><i class="ph ph-gear-six"></i> Settings &amp; Alerts</h2>
-                <button @click="fetchConfig()"
-                        style="background: var(--accent-blue); color: white; border: 0; padding: 8px 16px; border-radius: 8px; cursor: pointer;">
-                    <i class="ph ph-arrow-clockwise"></i> Refresh
-                </button>
-            </div>
-
-            <!-- Telegram section -->
-            <div class="card" style="margin-bottom: 16px;">
-                <div class="card-title" style="margin-bottom: 16px;"><i class="ph ph-paper-plane-tilt"></i> Telegram Bot</div>
-                <div style="display: grid; grid-template-columns: 200px 1fr; gap: 8px 16px; font-size: 14px; margin-bottom: 16px;">
-                    <span style="color: var(--text-muted);">Enabled</span>
-                    <span x-text="config?.telegram?.TELEGRAM_ENABLED ? '✓ Yes' : '✗ No'"
-                          :style="`color: ${config?.telegram?.TELEGRAM_ENABLED ? 'var(--accent-green)' : 'var(--accent-red)'}`"></span>
-                    <span style="color: var(--text-muted);">Bot token</span>
-                    <span class="mono" x-text="config?.telegram?.TELEGRAM_BOT_TOKEN_MASK || '(unset)'"></span>
-                    <span style="color: var(--text-muted);">Chat ID</span>
-                    <span class="mono" x-text="config?.telegram?.TELEGRAM_CHAT_ID || '(unset)'"></span>
-                    <span style="color: var(--text-muted);">Verbosity</span>
-                    <span x-text="`${config?.telegram?.TELEGRAM_VERBOSITY ?? '?'} (${verbosityLabel(config?.telegram?.TELEGRAM_VERBOSITY)})`"></span>
-                </div>
-                <div style="display: flex; gap: 12px; flex-wrap: wrap;">
-                    <button @click="sendTest()" :disabled="testing"
-                            style="background: var(--accent-green); color: white; border: 0; padding: 10px 18px; border-radius: 8px; cursor: pointer;">
-                        <i class="ph ph-paper-plane-right"></i> <span x-text="testing ? 'Sending…' : 'Send test message'"></span>
-                    </button>
-                    <button @click="preview('per_map')"
-                            style="background: rgba(59,130,246,0.2); color: var(--accent-blue); border: 1px solid var(--accent-blue); padding: 10px 18px; border-radius: 8px; cursor: pointer;">
-                        Preview per-map
-                    </button>
-                    <button @click="preview('per_cycle')"
-                            style="background: rgba(59,130,246,0.2); color: var(--accent-blue); border: 1px solid var(--accent-blue); padding: 10px 18px; border-radius: 8px; cursor: pointer;">
-                        Preview per-cycle
-                    </button>
-                    <button @click="preview('daily')"
-                            style="background: rgba(59,130,246,0.2); color: var(--accent-blue); border: 1px solid var(--accent-blue); padding: 10px 18px; border-radius: 8px; cursor: pointer;">
-                        Preview daily
-                    </button>
-                </div>
-            </div>
-
-            <!-- Pipeline config -->
-            <div class="card" style="margin-bottom: 16px;">
-                <div class="card-title" style="margin-bottom: 16px;"><i class="ph ph-faders"></i> Pipeline Configuration <span class="badge-tag" style="background: rgba(148, 163, 184, 0.15); color: var(--text-muted); margin-left: 8px;">Read-only</span></div>
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px;">
-                    <template x-for="(group, name) in (config || {})" :key="name">
-                        <div x-show="name !== 'telegram'">
-                            <div style="text-transform: uppercase; font-size: 11px; color: var(--text-muted); letter-spacing: 0.5px; margin-bottom: 8px; font-weight: 600;" x-text="name"></div>
-                            <div style="display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 13px;">
-                                <template x-for="(v, k) in group" :key="k">
-                                    <template x-if="true">
-                                        <div style="display: contents;">
-                                            <span class="mono" style="color: var(--text-muted);" x-text="k"></span>
-                                            <span class="mono" style="text-align: right; word-break: break-all;" x-text="String(v)"></span>
-                                        </div>
-                                    </template>
-                                </template>
-                            </div>
-                        </div>
-                    </template>
-                </div>
-            </div>
-
-            <!-- Preview modal -->
-            <div x-show="previewMd !== null" x-cloak
-                 @click.self="previewMd = null"
-                 style="position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 24px;">
-                <div class="card" style="max-width: 720px; width: 100%; max-height: 85vh; overflow-y: auto; padding: 24px;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-                        <h3 x-text="`Telegram preview — ${previewType}`"></h3>
-                        <button @click="previewMd = null"
-                                style="background: none; border: 0; color: var(--text-muted); font-size: 22px; cursor: pointer;">×</button>
-                    </div>
-                    <pre class="mono" style="white-space: pre-wrap; word-break: break-word; background: rgba(0,0,0,0.4); padding: 16px; border-radius: 8px; font-size: 13px; line-height: 1.6;" x-text="previewMd"></pre>
-                </div>
-            </div>
-        </div>
-
     </main>
 
     <div id="toast-container"></div>
@@ -1201,8 +699,7 @@
                 // If navigating from Overview cards
                 const map = {
                     'view-overview': 0, 'view-pipeline': 1, 'view-manual': 2,
-                    'view-logs': 3, 'view-storage': 4, 'view-benchmark': 5,
-                    'view-cycles': 6, 'view-cdn': 7, 'view-settings': 8
+                    'view-logs': 3, 'view-api': 4, 'view-storage': 5, 'view-benchmark': 6
                 };
                 document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
                 document.querySelectorAll('.nav-item')[map[viewId]].classList.add('active');
@@ -1304,8 +801,7 @@
                             await pollJobForManualLog(mapType, "Downloading");
                         }
                         else if (res && res.status === 'sufficient') appendManualLog(`[${mapType}] Skipped: ${res.message}`, 'success');
-                        else if (res && res.status === 'error') throw new Error(res.message || 'Unknown error');
-                        else throw new Error(res ? JSON.stringify(res) : 'No response');
+                        else throw new Error();
                     }
                     else if (step === 3) {
                         const res = await apiCall('/api/v1/admin/trigger-generate-tiles', {
@@ -1326,14 +822,8 @@
                             appendManualLog(`[${mapType}] Expected: ${res.total_tiles_expected} | Existing: ${res.total_tiles_existing} | Status: ${statusMsg}`, msgType);
                         } else throw new Error();
                     }
-                    else if (step === 5) {
-                        const res = await apiCall(`/api/v1/admin/finalize-bunny/${mapType}/${runId}`, { method: 'POST' });
-                        if (res && res.pointer_ok) appendManualLog(`[${mapType}] Finalized on Bunny! Pointer moved.`, 'success');
-                        else throw new Error(res ? 'Failed to finalize' : 'Unknown error');
-                    }
                 } catch (err) {
-                    const detail = err.message ? ` — ${err.message}` : '';
-                    appendManualLog(`[${mapType}] Failed at Step ${step}${detail}`, 'error');
+                    appendManualLog(`[${mapType}] Failed at Step ${step}.`, 'error');
                 }
             });
 
@@ -1397,8 +887,8 @@
         // Cycle Monitor (REAL)
         const mapIcons = {
             'wind_surface': 'ph-wind', 'rain_advanced': 'ph-cloud-rain',
-            'rain_basic': 'ph-drop', 'temperature_feels_like': 'ph-thermometer',
-            'snow_depth': 'ph-snowflake'
+            'rain_basic': 'ph-drop', 'cloud_total': 'ph-cloud',
+            'cloud_layered': 'ph-clouds', 'temperature_feels_like': 'ph-thermometer'
         };
 
         function formatElapsed(ms) {
@@ -1771,6 +1261,75 @@
             }
         }
 
+        // User API Management (REAL)
+        let _userApiLogLength = 0;
+
+        async function pollUserApiStatus() {
+            const data = await apiCall('/api/v1/admin/user-api/status');
+            if (data) {
+                const isRunning = data.is_running;
+                const uptime = data.uptime_s ? formatElapsed(data.uptime_s * 1000) : '0s';
+                const pid = data.pid || '---';
+                
+                document.getElementById('api-detail-status').innerText = isRunning ? 'Online' : 'Offline';
+                document.getElementById('api-detail-status').style.color = isRunning ? 'var(--accent-green)' : 'var(--text-muted)';
+                document.getElementById('api-detail-icon').innerHTML = isRunning ? '<i class="ph ph-check-circle"></i> Running' : '<i class="ph ph-power"></i> Stopped';
+                document.getElementById('api-detail-icon').style.color = isRunning ? 'var(--accent-green)' : 'var(--text-muted)';
+                document.getElementById('api-detail-uptime').innerText = uptime;
+                document.getElementById('api-detail-pid').innerText = pid;
+
+                document.getElementById('overview-api-status').innerHTML = isRunning ? 'Online' : 'Offline';
+                document.getElementById('overview-api-status').style.color = isRunning ? 'var(--accent-green)' : 'var(--text-muted)';
+                document.getElementById('overview-api-uptime').innerHTML = `<i class="ph ph-clock"></i> Uptime: ${uptime}`;
+            }
+        }
+
+        async function pollUserApiLogs() {
+            const data = await apiCall('/api/v1/admin/user-api/logs?limit=50');
+            if (data && data.lines) {
+                if (data.lines.length !== _userApiLogLength) {
+                    _userApiLogLength = data.lines.length;
+                    const terminal = document.getElementById('userApiLogs');
+                    let html = '';
+                    data.lines.forEach(line => {
+                        let color = 'var(--text-main)';
+                        if (line.includes('ERROR') || line.includes('Exception') || line.includes('Traceback')) color = 'var(--accent-red)';
+                        else if (line.includes('WARNING')) color = '#facc15';
+                        else if (line.includes('INFO')) color = 'var(--accent-cyan)';
+                        html += `<div style="margin-bottom: 4px; color: ${color}; word-break: break-all; white-space: pre-wrap; font-family: monospace;">${line}</div>`;
+                    });
+                    if (!html) html = '<div style="color: var(--text-muted);">Waiting for logs...</div>';
+                    // Only update innerHTML if terminal exists and we aren't at bottom
+                    const isScrolledToBottom = terminal.scrollHeight - terminal.clientHeight <= terminal.scrollTop + 10;
+                    terminal.innerHTML = html;
+                    if (isScrolledToBottom) terminal.scrollTop = terminal.scrollHeight;
+                }
+            }
+        }
+
+        async function startUserApi() {
+            showToast('Starting User API...', 'info');
+            const data = await apiCall('/api/v1/admin/user-api/start', {method: 'POST'});
+            if (data && data.status === 'ok') {
+                showToast(data.message, 'success');
+                pollUserApiStatus();
+            } else {
+                showToast(data ? data.message : 'Failed to start User API', 'error');
+            }
+        }
+
+        async function stopUserApi() {
+            showToast('Stopping User API...', 'info');
+            const data = await apiCall('/api/v1/admin/user-api/stop', {method: 'POST'});
+            if (data && data.status === 'ok') {
+                showToast(data.message, 'success');
+                pollUserApiStatus();
+            } else if (data && data.status === 'ignored') {
+                showToast(data.message, 'info');
+            } else {
+                showToast(data ? data.message : 'Failed to stop User API', 'error');
+            }
+        }
 
         // Benchmark Mode (REAL)
         let isBenchmarkRunning = false;
@@ -1972,7 +1531,8 @@
             };
             const MAP_ICONS = {
                 temperature_feels_like: '🌡️', rain_basic: '🌧️', rain_advanced: '⛈️',
-                snow_depth: '❄️', wind_surface: '💨'
+                cloud_total: '☁️', cloud_layered: '🌥️', snow_depth: '❄️',
+                wind_surface: '💨'
             };
 
             let html = '';
@@ -2178,462 +1738,16 @@
             loadColdZoneLog();
         }
 
-        // ────────────────────────────────────────────────────────────────
-        // SSE: real-time push of jobs / progress / logs
-        // Replaces setInterval(fetchJobs, 2000) and setInterval(fetchLogs, 1500)
-        // ────────────────────────────────────────────────────────────────
-        let _sse = null;
-        let _sseReconnectTimer = null;
-
-        function _connectSSE() {
-            try {
-                _sse = new EventSource('/api/v1/admin/stream');
-            } catch (e) {
-                console.error('SSE init failed:', e);
-                _scheduleSSEReconnect();
-                return;
-            }
-
-            _sse.addEventListener('hello', () => {
-                console.log('[SSE] connected');
-            });
-
-            _sse.addEventListener('jobs', (e) => {
-                try {
-                    const payload = JSON.parse(e.data);
-                    if (window.Alpine && Alpine.store('adminLive')) {
-                        Alpine.store('adminLive').jobs = payload;
-                    }
-                    // Trigger existing UI refresh (merged endpoint also includes progress)
-                    fetchJobs();
-                } catch (err) { console.warn('[SSE] jobs parse:', err); }
-            });
-
-            _sse.addEventListener('progress', (e) => {
-                try {
-                    const payload = JSON.parse(e.data);
-                    if (window.Alpine && Alpine.store('adminLive')) {
-                        Alpine.store('adminLive').progress = payload;
-                    }
-                } catch (err) { console.warn('[SSE] progress parse:', err); }
-            });
-
-            _sse.addEventListener('logs', (e) => {
-                try {
-                    const payload = JSON.parse(e.data);
-                    if (payload && payload.lines && payload.lines.length > 0) {
-                        lastLogSeq = payload.max_seq || lastLogSeq;
-                        totalLogsCounter += payload.lines.length;
-                        let html = '';
-                        // SSE lines come in DESC order (newest first); reverse for chronological append
-                        const lines = [...payload.lines].reverse();
-                        lines.forEach(line => {
-                            const levelClass = `log-level-${line.level || 'info'}`;
-                            const ts = line.ts ? new Date(line.ts * 1000).toLocaleTimeString() : (line.time || '--');
-                            const msg = (line.msg || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-                            html += `<div class="log-row">
-                                <span class="log-time mono">[${ts}]</span>
-                                <span class="${levelClass}">${line.level || 'info'}</span>
-                                <span style="color: var(--text-main); word-break: break-all;">${msg}</span>
-                            </div>`;
-                        });
-                        if (terminal) {
-                            terminal.insertAdjacentHTML('beforeend', html);
-                            terminal.scrollTop = terminal.scrollHeight;
-                        }
-                        const ovEl = document.getElementById('overview-logs-count');
-                        if (ovEl) ovEl.innerText = totalLogsCounter;
-                    }
-                } catch (err) { console.warn('[SSE] logs parse:', err); }
-            });
-
-            _sse.addEventListener('ping', () => {});
-
-            _sse.onerror = () => {
-                console.warn('[SSE] connection error, reconnecting in 5s');
-                if (_sse) { _sse.close(); _sse = null; }
-                _scheduleSSEReconnect();
-            };
-        }
-
-        function _scheduleSSEReconnect() {
-            if (_sseReconnectTimer) return;
-            _sseReconnectTimer = setTimeout(() => {
-                _sseReconnectTimer = null;
-                _connectSSE();
-            }, 5000);
-        }
-
-        // ────────────────────────────────────────────────────────────────
-        // Alpine store + view components
-        // ────────────────────────────────────────────────────────────────
-        document.addEventListener('alpine:init', () => {
-            Alpine.store('adminLive', {
-                jobs: {},
-                progress: {},
-            });
-
-            Alpine.data('overviewWeather', () => ({
-                now: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ' UTC',
-                forecast: [],
-                _clockTimer: null,
-
-                init() {
-                    this._clockTimer = setInterval(() => {
-                        this.now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ' UTC';
-                    }, 30000);
-                    this.fetchForecast();
-                    // Refresh forecast every 5 minutes
-                    setInterval(() => this.fetchForecast(), 5 * 60 * 1000);
-                },
-
-                async fetchForecast() {
-                    try {
-                        const r = await fetch('/api/v1/admin/cycles?days=2');
-                        const data = await r.json();
-                        this.forecast = (data || []).slice(0, 6);
-                    } catch (e) { /* ignore */ }
-                },
-
-                get condition() {
-                    const jobs = this.$store.adminLive.jobs || {};
-                    const progress = this.$store.adminLive.progress || {};
-                    const states = Object.values(jobs).map(j => j && j.status);
-                    const running = Object.values(progress).some(p =>
-                        p && p.step && !['done', 'idle', 'cancelled', 'error'].includes(p.step)
-                    );
-                    if (states.some(s => s === 'error')) return { kind: 'stormy', icon: 'ph-cloud-lightning', label: 'Stormy · errors detected' };
-                    if (running)                          return { kind: 'active', icon: 'ph-wind',            label: 'Active · cycle in progress' };
-                    if (states.some(s => s === 'cancelled')) return { kind: 'cloudy', icon: 'ph-cloud',         label: 'Cloudy · last run cancelled' };
-                    if (states.length && states.every(s => s === 'ok' || s === 'idle'))
-                                                          return { kind: 'sunny',  icon: 'ph-sun',             label: 'Clear skies · all systems nominal' };
-                    return { kind: 'cloudy', icon: 'ph-cloud-sun', label: 'Standby · awaiting next cycle' };
-                },
-
-                forecastIcon(status) {
-                    return ({
-                        ok:      'ph-sun',
-                        warning: 'ph-cloud',
-                        error:   'ph-cloud-lightning',
-                    })[status] || 'ph-cloud-sun';
-                },
-
-                formatCycleLabel(runId) {
-                    if (!runId) return '?';
-                    const m = runId.match(/^(\d{4})(\d{2})(\d{2})_(\d{2})z$/);
-                    if (!m) return runId;
-                    return `${m[2]}/${m[3]} ${m[4]}z`;
-                },
-
-                formatDur(s) {
-                    if (s == null) return '-';
-                    if (s < 60) return s.toFixed(0) + 's';
-                    if (s < 3600) return Math.floor(s/60) + 'm';
-                    return (s/3600).toFixed(1) + 'h';
-                },
-            }));
-
-            Alpine.data('cycleHistoryView', () => ({
-                days: 7,
-                cycles: [],
-                selectedRunId: null,
-                selectedCycle: null,
-                ganttChart: null,
-                loading: false,
-
-                async init() {
-                    await this.fetchCycles();
-                },
-
-                hasActiveCycle() {
-                    const p = this.$store.adminLive.progress || {};
-                    return Object.values(p).some(v => v && v.step && !['done', 'idle', 'cancelled', 'error'].includes(v.step));
-                },
-
-                async fetchCycles() {
-                    this.loading = true;
-                    try {
-                        const r = await fetch(`/api/v1/admin/cycles?days=${this.days}`);
-                        this.cycles = await r.json();
-                    } catch (e) {
-                        console.error('fetchCycles:', e);
-                        this.cycles = [];
-                    } finally {
-                        this.loading = false;
-                    }
-                },
-
-                async selectCycle(runId) {
-                    this.selectedRunId = runId;
-                    try {
-                        const r = await fetch(`/api/v1/admin/cycles/${runId}`);
-                        if (!r.ok) throw new Error(r.statusText);
-                        this.selectedCycle = await r.json();
-                        this.$nextTick(() => this.renderGantt());
-                    } catch (e) {
-                        showToast('Failed to load cycle: ' + e.message, 'error');
-                        this.selectedCycle = null;
-                    }
-                },
-
-                renderGantt() {
-                    const canvas = this.$refs.ganttCanvas;
-                    if (!canvas || !this.selectedCycle) return;
-                    if (this.ganttChart) { this.ganttChart.destroy(); this.ganttChart = null; }
-
-                    const maps = this.selectedCycle.maps || [];
-                    const STAGES = [
-                        { key: 'download',  label: 'Download',  color: '#3b82f6' },
-                        { key: 'generate',  label: 'Generate',  color: '#8b5cf6' },
-                        { key: 'push',      label: 'Push',      color: '#f97316' },
-                        { key: 'cold_copy', label: 'Cold copy', color: '#06b6d4' },
-                        { key: 'finalize',  label: 'Finalize',  color: '#10b981' },
-                    ];
-
-                    const labels = maps.map(m => m.map_type);
-                    const datasets = STAGES.map(s => ({
-                        label: s.label,
-                        backgroundColor: s.color,
-                        borderColor: s.color,
-                        borderWidth: 0,
-                        borderSkipped: false,
-                        data: maps.map(m => {
-                            const sa = m[`${s.key}_started_at`];
-                            const ea = m[`${s.key}_finished_at`];
-                            if (!sa || !ea) return null;
-                            return { x: [new Date(sa).getTime(), new Date(ea).getTime()], y: m.map_type };
-                        }),
-                    }));
-
-                    this.ganttChart = new Chart(canvas, {
-                        type: 'bar',
-                        data: { labels, datasets },
-                        options: {
-                            indexAxis: 'y',
-                            responsive: true,
-                            maintainAspectRatio: false,
-                            scales: {
-                                x: { type: 'time', time: { displayFormats: { minute: 'HH:mm', second: 'HH:mm:ss' } },
-                                     ticks: { color: '#94a3b8' }, grid: { color: 'rgba(255,255,255,0.04)' } },
-                                y: { stacked: true, ticks: { color: '#f8fafc', font: { family: 'JetBrains Mono' } },
-                                     grid: { color: 'rgba(255,255,255,0.04)' } },
-                            },
-                            plugins: {
-                                legend: { labels: { color: '#f8fafc' } },
-                                tooltip: {
-                                    callbacks: {
-                                        label: (ctx) => {
-                                            const v = ctx.raw;
-                                            if (!v || !v.x) return '';
-                                            const dur = (v.x[1] - v.x[0]) / 1000;
-                                            return `${ctx.dataset.label}: ${dur.toFixed(1)}s`;
-                                        },
-                                    },
-                                },
-                            },
-                        },
-                    });
-                },
-
-                statusIcon(s) {
-                    return ({ ok: '✓', warning: '⚠', error: '✗' })[s] || '?';
-                },
-                statusColor(s) {
-                    return ({ ok: 'var(--accent-green)', warning: '#facc15', error: 'var(--accent-red)' })[s] || 'var(--text-muted)';
-                },
-                formatTs(iso) {
-                    if (!iso) return '-';
-                    try { return new Date(iso).toLocaleString([], { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' }); }
-                    catch (e) { return iso; }
-                },
-                formatDuration(s) {
-                    if (s == null) return '-';
-                    if (s < 60) return s.toFixed(1) + 's';
-                    if (s < 3600) return Math.floor(s/60) + 'm' + Math.floor(s%60) + 's';
-                    return Math.floor(s/3600) + 'h' + Math.floor((s%3600)/60) + 'm';
-                },
-                formatBytes(b) {
-                    if (b == null || b === 0) return '0 B';
-                    const u = ['B','KB','MB','GB','TB']; let i = 0;
-                    while (b >= 1024 && i < u.length - 1) { b /= 1024; i++; }
-                    return b.toFixed(b < 10 ? 2 : 1) + ' ' + u[i];
-                },
-            }));
-
-            Alpine.data('cdnAnalyticsView', () => ({
-                days: 1,
-                enabled: true,
-                rows: [],
-                summary: {},
-                storage: { bytes: 0 },
-                charts: {},
-
-                async init() {
-                    await this.fetchAll();
-                },
-
-                async fetchAll() {
-                    try {
-                        const [a, s] = await Promise.all([
-                            fetch(`/api/v1/admin/bunny/analytics?days=${this.days}`).then(r => r.json()),
-                            fetch(`/api/v1/admin/bunny/storage`).then(r => r.json()),
-                        ]);
-                        this.enabled = !!a.enabled;
-                        this.rows = a.rows || [];
-                        this.summary = a.summary || {};
-                        this.storage = s || { bytes: 0 };
-                        if (this.enabled) {
-                            this.$nextTick(() => this.renderCharts());
-                        }
-                    } catch (e) {
-                        console.error('fetchAll bunny:', e);
-                        showToast('Bunny analytics failed: ' + e.message, 'error');
-                    }
-                },
-
-                renderCharts() {
-                    Object.values(this.charts).forEach(c => c && c.destroy());
-                    this.charts = {};
-
-                    const labels = this.rows.map(r => new Date(r.timestamp));
-                    const pulls = this.rows.map(r => r.pull_requests || 0);
-                    const bw = this.rows.map(r => r.bandwidth_bytes || 0);
-                    const e4 = this.rows.map(r => r.error_4xx || 0);
-                    const e5 = this.rows.map(r => r.error_5xx || 0);
-                    const cache = this.rows.map(r => (r.cache_hit_ratio || 0) * 100);
-
-                    const baseScales = {
-                        x: { type: 'time', ticks: { color: '#94a3b8' }, grid: { color: 'rgba(255,255,255,0.04)' } },
-                        y: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(255,255,255,0.04)' } },
-                    };
-                    const baseOpts = { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#f8fafc' } } } };
-
-                    if (this.$refs.trafficCanvas) {
-                        this.charts.traffic = new Chart(this.$refs.trafficCanvas, {
-                            type: 'line',
-                            data: { labels, datasets: [
-                                { label: 'Pulls', data: pulls, borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,0.1)', yAxisID: 'y', tension: 0.3 },
-                                { label: 'Bandwidth (GB)', data: bw.map(b => b / 1e9), borderColor: '#06b6d4', backgroundColor: 'rgba(6,182,212,0.1)', yAxisID: 'y1', tension: 0.3 },
-                            ]},
-                            options: { ...baseOpts, scales: { x: baseScales.x,
-                                y: { ...baseScales.y, position: 'left', title: { display: true, text: 'Pulls', color: '#94a3b8' } },
-                                y1: { position: 'right', ticks: { color: '#94a3b8' }, grid: { drawOnChartArea: false }, title: { display: true, text: 'GB', color: '#94a3b8' } },
-                            }},
-                        });
-                    }
-                    if (this.$refs.errorCanvas) {
-                        this.charts.error = new Chart(this.$refs.errorCanvas, {
-                            type: 'bar',
-                            data: { labels, datasets: [
-                                { label: '4xx', data: e4, backgroundColor: '#facc15' },
-                                { label: '5xx', data: e5, backgroundColor: '#ef4444' },
-                            ]},
-                            options: { ...baseOpts, scales: { x: { ...baseScales.x, stacked: true }, y: { ...baseScales.y, stacked: true } } },
-                        });
-                    }
-                    if (this.$refs.cacheCanvas) {
-                        this.charts.cache = new Chart(this.$refs.cacheCanvas, {
-                            type: 'line',
-                            data: { labels, datasets: [
-                                { label: 'Cache Hit %', data: cache, borderColor: '#10b981', backgroundColor: 'rgba(16,185,129,0.1)', tension: 0.3, fill: true },
-                            ]},
-                            options: { ...baseOpts, scales: { x: baseScales.x, y: { ...baseScales.y, suggestedMin: 0, suggestedMax: 100 } } },
-                        });
-                    }
-                    if (this.$refs.countryCanvas) {
-                        const tc = this.summary.top_countries || [];
-                        this.charts.country = new Chart(this.$refs.countryCanvas, {
-                            type: 'bar',
-                            data: {
-                                labels: tc.map(c => c.code),
-                                datasets: [{ label: 'Requests', data: tc.map(c => c.requests), backgroundColor: '#8b5cf6' }],
-                            },
-                            options: { ...baseOpts, indexAxis: 'y', scales: baseScales, plugins: { legend: { display: false } } },
-                        });
-                    }
-                },
-
-                formatNumber(n) {
-                    if (n == null) return '0';
-                    if (n >= 1e6) return (n/1e6).toFixed(2) + 'M';
-                    if (n >= 1e3) return (n/1e3).toFixed(1) + 'K';
-                    return String(n);
-                },
-                formatBytes(b) {
-                    if (b == null || b === 0) return '0 B';
-                    const u = ['B','KB','MB','GB','TB']; let i = 0;
-                    while (b >= 1024 && i < u.length - 1) { b /= 1024; i++; }
-                    return b.toFixed(b < 10 ? 2 : 1) + ' ' + u[i];
-                },
-                formatHour(iso) {
-                    if (!iso) return '-';
-                    try { return new Date(iso).toLocaleString([], { month: 'short', day: '2-digit', hour: '2-digit' }); }
-                    catch (e) { return iso; }
-                },
-            }));
-
-            Alpine.data('settingsView', () => ({
-                config: {},
-                testing: false,
-                previewMd: null,
-                previewType: '',
-
-                async init() {
-                    await this.fetchConfig();
-                },
-
-                async fetchConfig() {
-                    try {
-                        this.config = await fetch('/api/v1/admin/config/public').then(r => r.json());
-                    } catch (e) {
-                        console.error('fetchConfig:', e);
-                        showToast('Failed to load config: ' + e.message, 'error');
-                    }
-                },
-
-                verbosityLabel(v) {
-                    return ({ 0: 'critical+daily only', 1: '+per-cycle', 2: '+per-map' })[v] || 'unknown';
-                },
-
-                async sendTest() {
-                    if (this.testing) return;
-                    this.testing = true;
-                    try {
-                        const r = await fetch('/api/v1/admin/telegram/test', { method: 'POST' });
-                        const data = await r.json();
-                        if (data.sent) showToast('✓ Test message sent to Telegram', 'success');
-                        else showToast('✗ ' + (data.error || 'Send failed'), 'error');
-                    } catch (e) {
-                        showToast('Telegram test error: ' + e.message, 'error');
-                    } finally {
-                        this.testing = false;
-                    }
-                },
-
-                async preview(type) {
-                    this.previewType = type;
-                    this.previewMd = '⌛ Loading…';
-                    try {
-                        const r = await fetch(`/api/v1/admin/telegram/preview/${type}`);
-                        const data = await r.json();
-                        this.previewMd = data.markdown || '(empty)';
-                    } catch (e) {
-                        this.previewMd = '✗ Error: ' + e.message;
-                    }
-                },
-            }));
-        });
-
-        _connectSSE();
-        // Note: setInterval(fetchJobs, 2000) and setInterval(fetchLogs, 1500) removed —
-        // SSE pushes both events.  Keeping the other 3 polls (user-api / benchmark)
-        // since they are subprocesses managed outside the scheduler loop.
-
+        setInterval(fetchJobs, 2000);
+        setInterval(fetchLogs, 1500);
+        setInterval(pollUserApiStatus, 2000);
+        setInterval(pollUserApiLogs, 2000);
         setInterval(() => { if (isBenchmarkRunning) pollBenchmarkStatus(); }, 5000);
 
         fetchJobs();
         fetchLogs();
-
+        pollUserApiStatus();
+        pollUserApiLogs();
         pollBenchmarkStatus();
         loadStorageStats();
     </script>

@@ -23,11 +23,22 @@ class TimelineFrame(BaseModel):
     has_json_grid: bool
 
 
+class TimelineSegment(BaseModel):
+    start_fff: int      # e.g. 6
+    end_fff: int        # e.g. 36
+    step_hours: int     # e.g. 3
+    start_time: str     # ISO UTC — run_dt + start_fff hours
+    end_time: str       # ISO UTC — run_dt + end_fff hours
+
+
 class TimelineResponse(BaseModel):
     map_type: str
     run_id: str
-    run_time: str          # cycle start time ISO-8601 UTC
+    run_time: str              # cycle start time ISO-8601 UTC
     now_offset_hours: float
+    window_start_time: str     # validTime of first ready frame (or first frame)
+    window_end_time: str       # validTime of last ready frame (or last frame)
+    segments: list[TimelineSegment]   # step structure from MAP_SPECS
     frames: list[TimelineFrame]
 
 
@@ -55,10 +66,6 @@ class GridResponse(BaseModel):
     unit: str
     lat: list[float]
     lon: list[float]
-    # For wind_animation: u + v fields
-    u: list[list[float]] | None = None
-    v: list[list[float]] | None = None
-    speed_max: float | None = None
     # For rain_advanced: prate + crain + csnow
     prate: list[list[float]] | None = None
     crain: list[list[float]] | None = None

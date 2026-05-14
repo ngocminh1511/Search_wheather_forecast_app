@@ -1,0 +1,10 @@
+{
+  "venvPath": "./noaa_be",
+  "venv": ".venv",
+  "pythonVersion": "3.11",
+  "extraPaths": [
+    "./scripts",
+    "./noaa_be/.venv/lib/python3.11/site-packages"
+  ],
+  "reportMissingModuleSource": false
+}

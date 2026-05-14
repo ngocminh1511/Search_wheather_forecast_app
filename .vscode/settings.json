@@ -1,6 +1,13 @@
 {
     "python-envs.defaultPackageManager": "ms-python.python:conda",
-    "python.analysis.extraPaths": ["./scripts"],
+    "python.analysis.extraPaths": [
+        "./scripts",
+        "./noaa_be/.venv/lib/python3.11/site-packages"
+    ],
+    "python.defaultInterpreterPath": "./noaa_be/.venv/bin/python",
+    "python.analysis.pythonPath": "./noaa_be/.venv/bin/python",
+    "python.venvPath": "./noaa_be",
+    "python.venvFolders": [".venv"],
     "git.ignoreLimitWarning": true,
     "kiroAgent.configureMCP": "Disabled"
 }

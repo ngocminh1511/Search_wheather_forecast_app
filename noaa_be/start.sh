@@ -49,13 +49,13 @@ EOF
 echo "[start.sh] Starting noaa_be  mode=$MODE host=$HOST port=$PORT"
 
 if [[ "$MODE" == "dev" ]]; then
-  exec uvicorn app.main:app \
+  exec uvicorn pipeline_main:app \
     --host "$HOST" \
     --port "$PORT" \
     --reload \
     --log-level info
 else
-  exec uvicorn app.main:app \
+  exec uvicorn pipeline_main:app \
     --host "$HOST" \
     --port "$PORT" \
     --workers "$WORKERS" \

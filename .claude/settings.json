@@ -1,0 +1,53 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3)",
+      "Bash(python3 -m app.benchmark --mode predict --zoom 8)",
+      "Bash(python3 -c ' *)",
+      "Bash(python3 -m pip install httpx)",
+      "Bash(lsof -ti:8000)",
+      "Bash(xargs -r kill -9)",
+      "Bash(nohup python3 -m uvicorn app.main:app --host 127.0.0.1 --port 8000)",
+      "Read(//private/tmp/**)",
+      "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}\\\\n\" http://127.0.0.1:8000/api/v1/admin/jobs)",
+      "Bash(curl -s 'http://127.0.0.1:8000/api/v1/admin/cycles?days=7')",
+      "Bash(python3 -m json.tool)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('type:', d.get\\('type'\\)\\); print\\('---markdown preview---'\\); print\\(d.get\\('markdown',''\\)[:500]\\)\")",
+      "Bash(curl -s -o /tmp/r1.json -w 'HTTP %{http_code}\\\\n' http://127.0.0.1:8000/api/v1/admin/cycles/nonexistent_run)",
+      "Read(//tmp/**)",
+      "Bash(curl -s http://127.0.0.1:8000/api/v1/admin/telegram/preview/per_cycle)",
+      "Bash(curl -sN --max-time 5 http://127.0.0.1:8000/api/v1/admin/stream)",
+      "Bash(python3 -)",
+      "Bash(/usr/bin/grep -nE \"mount|StaticFiles|FileResponse|@app\\\\.get\" /Users/goodjob/mobile/doan/Search_wheather_forecast_app/noaa_be/app/main.py)",
+      "Bash(/usr/bin/tail -10 /tmp/admin_p2_server.log)",
+      "Bash(/usr/bin/lsof -ti:8000)",
+      "Bash(/usr/bin/xargs -r /bin/kill -9)",
+      "Bash(/bin/echo \"server stopped\")",
+      "Bash(/sbin/lsof -ti:8000)",
+      "Bash(/usr/bin/grep -nE \"^</style>|@keyframes|\\\\.sidebar\\\\s*\\\\{|\\\\.card\\\\s*\\\\{|\\\\.big-number\\\\s*\\\\{|\\\\.nav-item\\\\s*\\\\{\" /Users/goodjob/mobile/doan/Search_wheather_forecast_app/noaa_be/app/static/index.html)",
+      "Bash(/usr/bin/head -20)",
+      "Bash(.venv/bin/python3 -c \"import fastapi, uvicorn, httpx, apscheduler, numpy, PIL, sqlite3; print\\('core deps OK:', fastapi.__version__\\)\")",
+      "Bash(find /Users/goodjob/mobile/doan -type d -name \"lib\" 2>/dev/null | grep -v \".venv\")",
+      "Read(//Users/goodjob/mobile/doan/**)",
+      "Bash(find /Users/goodjob/mobile/doan -name \"pubspec.yaml\" -o -name \"*.dart\" 2>/dev/null | head -20)",
+      "Bash(grep -E \"\\\\.dart$\")",
+      "Bash(xargs cat)",
+      "Bash(flutter analyze *)",
+      "Bash(python3 -c \"from app.routers.maps import router; from app.schemas.map import TimelineSegment, TimelineResponse; print\\('OK'\\)\")",
+      "Bash(ipconfig getifaddr *)",
+      "Bash(awk '{print $2}')",
+      "Bash(grep -E \"\\\\.py$\")",
+      "Bash(python3 -c \"from app.routers.maps import map_timeline; from app.services.timeline_builder import build_timeline_static; print\\('OK'\\)\")",
+      "Bash(python3 -c \"from app.services.scheduler_service import finalize_map_to_bunny; from app.services.bunny_storage import BunnyStorageClient; print\\('OK'\\)\")",
+      "Bash(python3 -c \"from app.services.scheduler_service import finalize_map_to_bunny; print\\('OK'\\)\")",
+      "Bash(flutter pub *)",
+      "Bash(curl -s http://localhost:8000/api/v1/admin/jobs)",
+      "Bash(curl -s -o /dev/null -w '%{http_code}' https://weather-tiles-cdn.b-cdn.net/tiles/__TRACKED_VAR__/_current.json)",
+      "Bash(curl -s -o /dev/null -w '%{http_code}' https://weather-tiles-cdn.b-cdn.net/tiles/__TRACKED_VAR__/_timeline.json)"
+    ],
+    "additionalDirectories": [
+      "/Users/goodjob/mobile/doan/noaa_weather/lib/features/weather_map/domain/models",
+      "/Users/goodjob/mobile/doan/noaa_weather"
+    ]
+  }
+}

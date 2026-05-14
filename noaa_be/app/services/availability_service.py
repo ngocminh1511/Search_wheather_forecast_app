@@ -133,12 +133,18 @@ def save_master_availability(run_id: str, payload: dict, available_dir: Path | N
 # ---------------------------------------------------------------------------
 
 def tiles_ready(map_type: str, run_id: str, fff: int, product: str, tiles_dir: Path | None = None) -> bool:
-    """Check if at least zoom z=0 tile exists for this frame."""
+    """Check if at least zoom z=0 tile exists for this frame (chunk or loose)."""
     cfg = get_settings()
     d = tiles_dir or cfg.TILES_DIR
-    tile_0_0_0 = d / map_type / run_id / \
-        f"{fff:03d}" / product / "0" / "0" / "0.png"
-    return tile_0_0_0.exists()
+    frame_dir = d / map_type / run_id / f"{fff:03d}" / product
+    # Primary: chunk format — z=0 metatile chunk (0_0.chunk covers tile 0/0/0)
+    if (frame_dir / "0" / "0_0.chunk").exists():
+        return True
+    # Fallback: loose tile (webp or png)
+    for ext in ("webp", "png"):
+        if (frame_dir / "0" / "0" / f"0.{ext}").exists():
+            return True
+    return False
 
 
 def json_grid_ready(map_type: str, run_id: str, fff: int, product: str, grids_dir: Path | None = None) -> bool:
@@ -148,44 +154,3 @@ def json_grid_ready(map_type: str, run_id: str, fff: int, product: str, grids_di
     return path.exists()
 
 
-# ---------------------------------------------------------------------------
-# Cloud circular buffer helpers
-# ---------------------------------------------------------------------------
-
-def cloud_run_ids_for_24h(available_dir: Path | None = None) -> list[str]:
-    """
-    For cloud maps (archive direction), return up to KEEP_CYCLES latest run IDs.
-    These together cover the past 24h window.
-    """
-    cfg = get_settings()
-    ids = all_run_ids(available_dir)
-    return ids[: cfg.KEEP_CYCLES]
-
-
-def prune_old_cloud_runs(
-    map_type: str,
-    available_dir: Path | None = None,
-    tiles_dir: Path | None = None,
-) -> list[str]:
-    """
-    Keep only the latest KEEP_CYCLES runs for cloud map types.
-    Delete tiles for older runs. Returns list of pruned run_ids.
-    """
-    import shutil
-    cfg = get_settings()
-    d = available_dir or cfg.AVAILABLE_DIR
-    td = tiles_dir or cfg.TILES_DIR
-
-    # Only operate on cloud map types
-    if map_type not in cfg.ARCHIVE_MAP_TYPES:
-        return []
-
-    ids = all_run_ids(d)
-    to_prune = ids[cfg.CLOUD_KEEP_CYCLES:]
-    pruned = []
-    for run_id in to_prune:
-        run_tile_dir = td / map_type / run_id
-        if run_tile_dir.exists():
-            shutil.rmtree(run_tile_dir, ignore_errors=True)
-            pruned.append(run_id)
-    return pruned

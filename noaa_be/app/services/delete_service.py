@@ -237,7 +237,12 @@ def _discover_run_ids(map_type: str, cfg: Any) -> list[str]:
 
 
 def _delete_run(map_type: str, run_id: str, cfg: Any) -> None:
-    """Delete all data for (map_type, run_id). Fully idempotent."""
+    """Delete all data for (map_type, run_id). Fully idempotent.
+
+    Also synchronizes deletion to Bunny.net Storage when BUNNY_ENABLED:
+      - If pointer trỏ tới run này, reset pointer to previous_run (or remove pointer)
+      - Delete the run prefix on Bunny
+    """
     _rm(cfg.DATA_DIR / map_type / run_id)
     _rm(cfg.TILES_DIR / map_type / run_id)
     _rm(cfg.STAGING_DIR / map_type / run_id)
@@ -250,6 +255,59 @@ def _delete_run(map_type: str, run_id: str, cfg: Any) -> None:
     avail_file.unlink(missing_ok=True)
 
     _prune_master_availability(run_id, map_type, cfg)
+
+    # Mirror delete on Bunny (non-fatal)
+    if getattr(cfg, "BUNNY_ENABLED", False):
+        try:
+            from .bunny_storage import get_bunny_client
+            from .timeline_builder import build_timeline_static
+            bunny = get_bunny_client()
+            if bunny is not None:
+                ptr = bunny.read_pointer(map_type)
+                pointer_targeted_this_run = bool(
+                    ptr and ptr.get("current_run") == run_id
+                )
+
+                if pointer_targeted_this_run:
+                    prev = ptr.get("previous_run")
+                    if prev:
+                        # Fall back to previous run for frontend continuity
+                        bunny.write_pointer(
+                            map_type, current_run=prev, previous_run=None,
+                        )
+                        # Rebuild _timeline.json để khớp với prev run
+                        try:
+                            timeline_doc = build_timeline_static(
+                                map_type, prev, cfg, bunny_run_ready=True,
+                            )
+                            if timeline_doc["frames"]:
+                                bunny.write_timeline_metadata(map_type, timeline_doc)
+                        except Exception as t_exc:
+                            log.warning(
+                                "Bunny _timeline.json rebuild fail %s/%s: %s",
+                                map_type, prev, t_exc,
+                            )
+                        log.info(
+                            "Bunny pointer fallback after delete: %s | %s → %s",
+                            map_type, run_id, prev,
+                        )
+                    else:
+                        bunny.delete_pointer(map_type)
+                        bunny.delete_timeline_metadata(map_type)
+                        log.info(
+                            "Bunny pointer + timeline removed (no fallback): %s",
+                            map_type,
+                        )
+
+                # Always purge the run's tile prefix
+                bunny.delete_run(map_type, run_id)
+                log.debug("Bunny delete: %s/%s", map_type, run_id)
+        except Exception as exc:
+            log.error(
+                "Bunny cleanup after admin _delete_run (non-fatal) %s/%s: %s",
+                map_type, run_id, exc,
+            )
+
     log.debug("_delete_run done: %s/%s", map_type, run_id)
 
 

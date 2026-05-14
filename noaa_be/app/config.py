@@ -67,7 +67,7 @@ class Settings:
         self.TILE_MAX_INFLIGHT_MULTIPLIER: int = max(
             1, int(os.getenv("TILE_MAX_INFLIGHT_MULTIPLIER", "2"))
         )
-        self.TILE_FORMAT_DEFAULT: str = os.getenv("TILE_FORMAT_DEFAULT", "png").lower()
+        self.TILE_FORMAT_DEFAULT: str = os.getenv("TILE_FORMAT_DEFAULT", "webp").lower()
         if self.TILE_FORMAT_DEFAULT not in {"png", "webp", "png8"}:
             self.TILE_FORMAT_DEFAULT = "png"
         self.TILE_WEBP_QUALITY: int = max(
@@ -95,7 +95,7 @@ class Settings:
             "TILE_PNG_OPTIMIZE", "false"
         ).lower() == "true"
         self.WIND_FIELD_COMPRESS_LEVEL: int = max(
-            0, min(9, int(os.getenv("WIND_FIELD_COMPRESS_LEVEL", "3")))
+            0, min(9, int(os.getenv("WIND_FIELD_COMPRESS_LEVEL", "1")))
         )
         self.WRITE_DEBUG_PNGS: bool = os.getenv(
             "WRITE_DEBUG_PNGS", "false"
@@ -171,10 +171,60 @@ class Settings:
         )  # = 36 by default
 
         # ── Map types using JSON grid for animation (no PNG tiles generated) ──
-        self.JSON_ONLY_MAP_TYPES: set[str] = {"wind_animation"}
+        # Currently empty — wind_animation removed; wind_surface uses tile-based WFLD encoding.
+        self.JSON_ONLY_MAP_TYPES: set[str] = set()
 
-        # ── Map types that are ARCHIVE (past 24h) vs FUTURE (next 24h) ──
-        self.ARCHIVE_MAP_TYPES: set[str] = {"cloud_total", "cloud_layered"}
+        # ── Bunny.net Storage (CDN sync) ──────────────────────────────────
+        # Master switch: 0 = noop (local-only mode), 1 = sync to Bunny CDN
+        self.BUNNY_ENABLED: bool = bool(int(os.getenv("BUNNY_ENABLED", "0")))
+        self.BUNNY_STORAGE_ZONE: str = os.getenv("BUNNY_STORAGE_ZONE", "")
+        self.BUNNY_API_KEY: str = os.getenv("BUNNY_API_KEY", "")
+        # Region: "" = global default, or "ny", "la", "sg", "syd", "uk", "de", "br", "jh", "se"
+        self.BUNNY_REGION: str = os.getenv("BUNNY_REGION", "")
+        self.BUNNY_PATH_PREFIX: str = os.getenv("BUNNY_PATH_PREFIX", "tiles")
+        # CDN pull-zone URL (informational, returned by /api/v1/cdn/info for clients)
+        self.BUNNY_PULL_ZONE_URL: str = os.getenv("BUNNY_PULL_ZONE_URL", "")
+        self.BUNNY_MAX_PARALLEL: int = int(os.getenv("BUNNY_MAX_PARALLEL", "16"))
+        self.BUNNY_RETRY_ATTEMPTS: int = int(os.getenv("BUNNY_RETRY_ATTEMPTS", "3"))
+        self.BUNNY_TIMEOUT_S: int = int(os.getenv("BUNNY_TIMEOUT_S", "60"))
+        # If 1, raise on any upload failure (scheduler will retry job).
+        # If 0, log error and continue (pipeline non-blocking).
+        self.BUNNY_FAIL_FAST: bool = bool(int(os.getenv("BUNNY_FAIL_FAST", "0")))
+        # After atomic switch, delete previous run from Bunny immediately.
+        self.BUNNY_DELETE_PREV_AFTER_SWITCH: bool = bool(
+            int(os.getenv("BUNNY_DELETE_PREV_AFTER_SWITCH", "1"))
+        )
+
+        # ── Telegram bot reporting ────────────────────────────────────────
+        # Master switch: 0 = noop (no Telegram), 1 = send Telegram alerts
+        self.TELEGRAM_ENABLED: bool = bool(int(os.getenv("TELEGRAM_ENABLED", "0")))
+        self.TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
+        self.TELEGRAM_CHAT_ID: str = os.getenv("TELEGRAM_CHAT_ID", "")
+        # Verbosity:
+        #   0 = chỉ critical alerts + daily report
+        #   1 = +per-cycle alerts (sau khi all 6 maps done)
+        #   2 = +per-map alerts (sau mỗi map done) — most verbose, default
+        self.TELEGRAM_VERBOSITY: int = int(os.getenv("TELEGRAM_VERBOSITY", "2"))
+
+        # ── Bunny Statistics API (account-level, separate from storage) ───
+        # Account API key (NOT the storage zone password!) — required for analytics.
+        # Get from: https://dash.bunny.net/account/settings (API Key tab).
+        self.BUNNY_ACCOUNT_API_KEY: str = os.getenv("BUNNY_ACCOUNT_API_KEY", "")
+        # Numeric IDs from Bunny dashboard:
+        #   Pull Zone ID: visible in URL when editing pull zone
+        #   Storage Zone ID: visible in URL when editing storage zone
+        self.BUNNY_PULL_ZONE_ID: str = os.getenv("BUNNY_PULL_ZONE_ID", "")
+        self.BUNNY_STORAGE_ZONE_ID: str = os.getenv("BUNNY_STORAGE_ZONE_ID", "")
+
+        # ── Daily report timing (UTC) ─────────────────────────────────────
+        # Default: 00:30 UTC = sau khi cycle 18z (begun 18:00 UTC) finish (~23:53 UTC)
+        self.DAILY_REPORT_UTC_HOUR: int = int(os.getenv("DAILY_REPORT_UTC_HOUR", "0"))
+        self.DAILY_REPORT_UTC_MINUTE: int = int(os.getenv("DAILY_REPORT_UTC_MINUTE", "30"))
+        # Bunny analytics polling interval (minutes)
+        self.BUNNY_ANALYTICS_POLL_MIN: int = int(os.getenv("BUNNY_ANALYTICS_POLL_MIN", "60"))
+
+        # ── Archive map types (legacy, hiện không còn map nào archive)
+        self.ARCHIVE_MAP_TYPES: set[str] = set()
 
         self.PRIORITY_FFF_HOT_LIST: list[int] = [
             int(v) for v in os.getenv("PRIORITY_FFF_HOT_LIST", "0,3,6,12,24,48,72").split(",")
@@ -188,10 +238,8 @@ class Settings:
             "rain_advanced": 8,
             "rain_basic": 8,
             "wind_surface": 8,
-            "temperature_feels_like": 7,
-            "cloud_total": 7,
-            "cloud_layered": 7,
-            "snow_depth": 7,
+            "temperature_feels_like": 8,
+            "snow_depth": 8,
             **{str(k): int(v) for k, v in parsed_zoom.items() if isinstance(v, int)},
         }
 
