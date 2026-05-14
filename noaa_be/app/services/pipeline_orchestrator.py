@@ -535,10 +535,26 @@ class PipelineOrchestrator:
                 self._rebuild_pool_if_broken("cut", e)
             finally:
                 if npy_path:
-                    try:
-                        Path(npy_path).unlink(missing_ok=True)
-                    except Exception as e:
-                        log.error("Failed to delete npy canvas %s: %s", npy_path, e)
+                    # On Windows, a child process may still hold the .npy
+                    # memory map for a brief moment after cut returns
+                    # (WinError 32). Retry a few times before giving up;
+                    # leaving the file behind is non-fatal but pollutes disk.
+                    import time as _time
+                    for attempt in range(5):
+                        try:
+                            Path(npy_path).unlink(missing_ok=True)
+                            break
+                        except PermissionError:
+                            if attempt == 4:
+                                log.warning(
+                                    "npy canvas still locked after 5 retries: %s",
+                                    npy_path,
+                                )
+                            else:
+                                _time.sleep(0.2 * (attempt + 1))
+                        except Exception as e:
+                            log.error("Failed to delete npy canvas %s: %s", npy_path, e)
+                            break
                 self.cut_queue.task_done()
 
     # ------------------------------------------------------------------

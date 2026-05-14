@@ -1,5 +1,6 @@
 import io
 import os
+import sys
 import struct
 import time
 import math
@@ -11,6 +12,19 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait, FIRST_CO
 from typing import Dict, Any, Optional
 
 _WIND_FIELD_ZSTD_CCTX = None  # lazy-initialized per process in _get_zstd_cctx()
+
+# Windows holds an exclusive file handle on memory-mapped .npy files inside
+# pool workers (workers are reused), which prevents the post-stage cleanup
+# from deleting the canvas (WinError 32). Skip mmap on Windows so files can
+# be removed when the cut/publish stages finish.
+_USE_MMAP = not sys.platform.startswith("win")
+
+
+def _np_load(path):
+    """Load a .npy file. mmap on POSIX (zero-copy), full read on Windows."""
+    if _USE_MMAP:
+        return np.load(path, mmap_mode="r")
+    return np.load(path)
 
 from ..config import get_settings
 from ..services.resource_guard import get_resource_metrics
@@ -210,9 +224,9 @@ def process_wind_metatile_worker(
     }
     
     try:
-        merc_u = np.load(npy_u_path, mmap_mode="r")
-        merc_v = np.load(npy_v_path, mmap_mode="r")
-        merc_speed = np.load(npy_speed_path, mmap_mode="r")
+        merc_u = _np_load(npy_u_path)
+        merc_v = _np_load(npy_v_path)
+        merc_speed = _np_load(npy_speed_path)
         canvas_size = merc_u.shape[0]
         
         metatile = Metatile(z, cx, cy)
@@ -422,8 +436,8 @@ def process_wind_temporal_metatile_worker(
 
     try:
         # mmap all canvases — OS only loads accessed pages
-        merc_u_all = [np.load(p, mmap_mode="r") for p in npy_u_paths]
-        merc_v_all = [np.load(p, mmap_mode="r") for p in npy_v_paths]
+        merc_u_all = [_np_load(p) for p in npy_u_paths]
+        merc_v_all = [_np_load(p) for p in npy_v_paths]
         canvas_size = merc_u_all[0].shape[0]
 
         metatile = Metatile(z, cx, cy)
@@ -594,7 +608,7 @@ def process_adv_precip_metatile_worker(
     }
     
     try:
-        mercs = {k: np.load(v, mmap_mode="r") for k, v in npy_paths.items()}
+        mercs = {k: _np_load(v) for k, v in npy_paths.items()}
         canvas_size = mercs["prate"].shape[0]
         
         metatile = Metatile(z, cx, cy)
@@ -772,7 +786,7 @@ def process_precip_classified_metatile_worker(
     }
 
     try:
-        combined = np.load(combined_npy_path, mmap_mode="r")
+        combined = _np_load(combined_npy_path)
         canvas_size = combined.shape[0]
 
         metatile = Metatile(z, cx, cy)
@@ -957,7 +971,7 @@ def process_metatile_worker(
             raise FileNotFoundError(
                 f"Canvas .npy not found (deleted too early or never written): {npy_path}"
             )
-        merc = np.load(npy_path, mmap_mode="r")
+        merc = _np_load(npy_path)
         canvas_size = merc.shape[0]
         
         metatile = Metatile(z, cx, cy)

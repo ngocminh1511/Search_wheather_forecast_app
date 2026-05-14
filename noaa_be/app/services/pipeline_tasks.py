@@ -198,8 +198,16 @@ def task_cut_and_write_tiles(
     if npy_file.stat().st_size < 1024:
         raise RuntimeError(f"Canvas .npy file is too small, likely corrupted: {npy_path}")
 
-    # Load via mmap — shared read-only across all threads (zero RAM copy)
-    merc = np.load(npy_path, mmap_mode="r")
+    # Load via mmap — shared read-only across all threads (zero RAM copy).
+    # On Windows, mmap holds an exclusive file handle in the worker process and
+    # prevents subsequent delete/cleanup (WinError 32). We open without mmap
+    # there to keep the file deletable; the array is small enough that the
+    # full read isn't a problem for the rare Windows dev runs.
+    import sys as _sys
+    if _sys.platform.startswith("win"):
+        merc = np.load(npy_path)
+    else:
+        merc = np.load(npy_path, mmap_mode="r")
 
     # Output directories
     staging_dir = cfg.STAGING_DIR / map_type / run_id / f"{fff:03d}" / product_name

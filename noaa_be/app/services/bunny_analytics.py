@@ -114,9 +114,17 @@ class BunnyAnalyticsClient:
 _singleton: Optional[BunnyAnalyticsClient] = None
 
 
+_httpx_warned: bool = False
+
+
 def get_bunny_analytics_client() -> Optional[BunnyAnalyticsClient]:
-    """Returns singleton client; None if disabled or misconfigured."""
-    global _singleton
+    """Returns singleton client; None if disabled or misconfigured.
+
+    Also returns None (with a one-shot warning) if the `httpx` dep is not
+    installed — admin endpoints that hit this path should degrade to noop
+    instead of raising HTTP 500 to the UI.
+    """
+    global _singleton, _httpx_warned
     cfg = get_settings()
     if not cfg.BUNNY_ENABLED:
         return None
@@ -128,9 +136,23 @@ def get_bunny_analytics_client() -> Optional[BunnyAnalyticsClient]:
             "STORAGE_ZONE_ID missing → noop"
         )
         return None
+    try:
+        import httpx  # noqa: F401  — presence check
+    except ImportError:
+        if not _httpx_warned:
+            log.warning(
+                "Bunny analytics disabled: httpx is not installed in this env. "
+                "Run `pip install -r requirements.txt` to enable."
+            )
+            _httpx_warned = True
+        return None
     if _singleton is None:
-        _singleton = BunnyAnalyticsClient(cfg)
-        log.info("Bunny analytics client initialized")
+        try:
+            _singleton = BunnyAnalyticsClient(cfg)
+            log.info("Bunny analytics client initialized")
+        except Exception as exc:
+            log.warning("Bunny analytics init failed (returning None): %s", exc)
+            return None
     return _singleton
 
 
