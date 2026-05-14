@@ -1367,8 +1367,15 @@ def trigger_job(
     # Reset UI state immediately so the admin log doesn't keep displaying
     # the previous cycle's error / step_detail for maps that are still
     # waiting their concurrency slot. Without this, queued maps appear to
-    # be "errored on 20260428_00z" until they actually start, even though
-    # the new submit is for 20260514_00z.
+    # be "errored on <old run_id>" until they actually start, even though
+    # the new submit is for a different cycle.
+    #
+    # IMPORTANT: do NOT set status="running" here. `_job_for_map_type`
+    # treats status=="running" as a stale-lock signal and skips the job
+    # if it sees one when actually starting — so setting it eagerly would
+    # cause every just-submitted job to short-circuit and never run.
+    # Setting `status="idle"` clears any prior error badge and lets the
+    # job worker flip idle → running when it actually picks the task.
     try:
         from ..services import progress_tracker as _pt
         _pt.reset(map_type)
@@ -1386,8 +1393,7 @@ def trigger_job(
             tiles_skipped=0,
         )
         status = db_get_job_status(map_type)
-        status["status"] = "running"  # claim the slot immediately
-        status["last_started"] = datetime.now(tz=timezone.utc).isoformat()
+        status["status"] = "idle"  # clear stale error/running so UI is sane
         status.pop("last_error", None)
         status.pop("cancel_requested", None)
         db_update_job_status(map_type, status)
