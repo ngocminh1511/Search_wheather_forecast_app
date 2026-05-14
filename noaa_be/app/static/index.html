@@ -1386,7 +1386,7 @@
         function mapStepToPipelineNum(step) {
             if (!step) return 0;
             const s = String(step).toLowerCase();
-            if (s.includes('checking') || s.includes('discover')) return 1;
+            if (s.includes('queued') || s.includes('checking') || s.includes('discover')) return 1;
             if (s.includes('download')) return 2;
             if (s.includes('generat') || s.includes('classifying') ||
                 s.includes('cutting') || s.includes('staging') ||

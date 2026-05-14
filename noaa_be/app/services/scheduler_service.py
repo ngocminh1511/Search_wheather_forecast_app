@@ -1364,6 +1364,36 @@ def trigger_job(
     `trigger-job-all` honours MAP_SPECS order — fixes the bug where
     wind_surface occasionally started before temperature_feels_like.
     """
+    # Reset UI state immediately so the admin log doesn't keep displaying
+    # the previous cycle's error / step_detail for maps that are still
+    # waiting their concurrency slot. Without this, queued maps appear to
+    # be "errored on 20260428_00z" until they actually start, even though
+    # the new submit is for 20260514_00z.
+    try:
+        from ..services import progress_tracker as _pt
+        _pt.reset(map_type)
+        detail = "Đang xếp hàng…"
+        if run_id_override:
+            detail = f"Xếp hàng (run_id={run_id_override})"
+        _pt.update(
+            map_type,
+            step="queued",
+            step_detail=detail,
+            run_id=run_id_override,
+            frames_total=0,
+            frames_done=0,
+            tiles_saved=0,
+            tiles_skipped=0,
+        )
+        status = db_get_job_status(map_type)
+        status["status"] = "running"  # claim the slot immediately
+        status["last_started"] = datetime.now(tz=timezone.utc).isoformat()
+        status.pop("last_error", None)
+        status.pop("cancel_requested", None)
+        db_update_job_status(map_type, status)
+    except Exception as exc:
+        log.warning("trigger_job pre-reset failed for %s: %s", map_type, exc)
+
     _job_executor.submit(
         _job_for_map_type, map_type, max_fff_override, run_id_override,
     )
