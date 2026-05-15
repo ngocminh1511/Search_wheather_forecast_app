@@ -581,7 +581,6 @@ class PipelineOrchestrator:
                 # run isn't re-queued in quick succession, but a failed run
                 # (not marked here) is naturally retryable on the next cycle.
                 self.published_runs[run_key] = _time.monotonic()
-                self.active_runs.discard(run_key)
             except Exception as e:
                 log.error(
                     "Publish failed for %s/%s: %s — staging left in place for retry",
@@ -591,7 +590,13 @@ class PipelineOrchestrator:
                 # can re-queue this run.
                 self.published_runs.pop(run_key, None)
             finally:
-                # Always release the in-flight guard so a retry path is open.
+                # Always release active_runs and publishing_runs so the
+                # caller's `submit_and_wait` polling loop returns and the
+                # _job_executor worker slot is freed even when publish raises
+                # (e.g. per-frame Bunny push failures). Without this, a
+                # publish failure leaks the slot and the next queued map
+                # never starts.
+                self.active_runs.discard(run_key)
                 self.publishing_runs.discard(run_key)
                 self.publish_queue.task_done()
 
