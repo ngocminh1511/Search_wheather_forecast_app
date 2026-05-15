@@ -1956,6 +1956,29 @@ def _collect_diagnostics(probe_noaa: bool = True) -> dict:
     except Exception as exc:
         checks["resources"] = {"ok": False, "error": str(exc)}
 
+    # 4b. Worker scaling info (informational — always ok=true)
+    try:
+        budget = getattr(cfg, "worker_budget", {}) or {}
+        checks["worker_scaling"] = {
+            "ok": True,
+            "auto_scale": cfg.AUTO_SCALE_WORKERS,
+            "cpu_budget_percent": cfg.CPU_BUDGET_PERCENT,
+            "total_cores": budget.get("_total_cores"),
+            "effective_cores": budget.get("_effective_cores"),
+            "cgroup_cores": budget.get("_cgroup_cores"),
+            "cgroup_memory_gb": budget.get("_cgroup_memory_gb"),
+            "source": budget.get("_source", "static env values"),
+            "peak_ram_estimate_gb": budget.get("_peak_ram_gb"),
+            "mem_capped": budget.get("_mem_capped", False),
+            "parse_workers": cfg.MAX_PARSE_WORKERS,
+            "build_workers": cfg.MAX_BUILD_WORKERS,
+            "cut_workers": cfg.MAX_CUT_WORKERS,
+            "tile_workers": cfg.TILE_WORKERS,
+            "max_parallel_maps": cfg.MAX_PARALLEL_MAP_TYPES,
+        }
+    except Exception as exc:
+        checks["worker_scaling"] = {"ok": True, "error": str(exc)}
+
     # 5. Last cycle health
     try:
         from ..core.db import get_cycle_metrics_between

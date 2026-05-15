@@ -1340,6 +1340,74 @@
                 </div>
             </div>
 
+            <!-- CPU Budget / Auto-scale -->
+            <div class="card" style="margin-bottom: 16px;" x-show="diag?.checks?.worker_scaling" x-cloak>
+                <div class="card-title" style="margin-bottom: 12px;">
+                    <i class="ph ph-cpu"></i> CPU Budget &amp; Worker Scaling
+                    <span class="badge-tag" :style="`margin-left: 8px; background: ${ws.auto_scale ? 'rgba(16,185,129,0.15)' : 'rgba(148,163,184,0.15)'}; color: ${ws.auto_scale ? 'var(--accent-green)' : 'var(--text-muted)'};`"
+                          x-text="ws.auto_scale ? 'AUTO' : 'MANUAL'"></span>
+                </div>
+                <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;" x-text="ws.source || ''"></div>
+
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 16px;">
+                    <div style="padding: 10px; background: rgba(0,0,0,0.2); border-radius: 6px;">
+                        <div style="font-size: 10px; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.5px;">Host cores</div>
+                        <div style="font-size: 20px; font-weight: 600; margin-top: 4px;" x-text="ws.total_cores ?? '?'"></div>
+                    </div>
+                    <div style="padding: 10px; background: rgba(0,0,0,0.2); border-radius: 6px;">
+                        <div style="font-size: 10px; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.5px;">Effective</div>
+                        <div style="font-size: 20px; font-weight: 600; margin-top: 4px; color: var(--accent-cyan);" x-text="ws.effective_cores ?? '?'"></div>
+                    </div>
+                    <div style="padding: 10px; background: rgba(0,0,0,0.2); border-radius: 6px;">
+                        <div style="font-size: 10px; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.5px;">CPU budget</div>
+                        <div style="font-size: 20px; font-weight: 600; margin-top: 4px;" x-text="`${ws.cpu_budget_percent}%`"></div>
+                    </div>
+                    <div style="padding: 10px; background: rgba(0,0,0,0.2); border-radius: 6px;">
+                        <div style="font-size: 10px; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.5px;">Peak RAM est.</div>
+                        <div style="font-size: 20px; font-weight: 600; margin-top: 4px;"
+                             :style="`color: ${(ws.peak_ram_estimate_gb || 0) > 24 ? 'var(--accent-red)' : 'var(--accent-green)'}`"
+                             x-text="`${ws.peak_ram_estimate_gb ?? '?'} GB`"></div>
+                    </div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; font-family: 'JetBrains Mono', monospace; font-size: 12px;">
+                    <div style="padding: 8px 10px; background: rgba(59,130,246,0.08); border-radius: 6px; border: 1px solid rgba(59,130,246,0.2);">
+                        <div style="color: var(--text-muted); font-size: 10px;">Parse</div>
+                        <div style="font-size: 16px; font-weight: 600;" x-text="ws.parse_workers"></div>
+                    </div>
+                    <div style="padding: 8px 10px; background: rgba(59,130,246,0.08); border-radius: 6px; border: 1px solid rgba(59,130,246,0.2);">
+                        <div style="color: var(--text-muted); font-size: 10px;">Build</div>
+                        <div style="font-size: 16px; font-weight: 600;" x-text="ws.build_workers"></div>
+                    </div>
+                    <div style="padding: 8px 10px; background: rgba(59,130,246,0.08); border-radius: 6px; border: 1px solid rgba(59,130,246,0.2);">
+                        <div style="color: var(--text-muted); font-size: 10px;">Cut</div>
+                        <div style="font-size: 16px; font-weight: 600;" x-text="ws.cut_workers"></div>
+                    </div>
+                    <div style="padding: 8px 10px; background: rgba(59,130,246,0.08); border-radius: 6px; border: 1px solid rgba(59,130,246,0.2);">
+                        <div style="color: var(--text-muted); font-size: 10px;">Tile</div>
+                        <div style="font-size: 16px; font-weight: 600;" x-text="ws.tile_workers"></div>
+                    </div>
+                    <div style="padding: 8px 10px; background: rgba(139,92,246,0.10); border-radius: 6px; border: 1px solid rgba(139,92,246,0.3);">
+                        <div style="color: var(--text-muted); font-size: 10px;">Concurrent maps</div>
+                        <div style="font-size: 16px; font-weight: 600; color: var(--accent-purple);" x-text="ws.max_parallel_maps"></div>
+                    </div>
+                </div>
+
+                <div x-show="ws.cgroup_memory_gb" x-cloak style="margin-top: 12px; font-size: 11px; color: var(--text-muted);">
+                    <i class="ph ph-info"></i>
+                    Container memory limit: <span class="mono" x-text="`${ws.cgroup_memory_gb} GB`"></span>
+                </div>
+                <div x-show="ws.mem_capped" x-cloak
+                     style="margin-top: 8px; padding: 8px 12px; background: rgba(245,158,11,0.10); border: 1px solid rgba(245,158,11,0.3); border-radius: 6px; font-size: 12px; color: #fbbf24;">
+                    <i class="ph-fill ph-shield-check"></i>
+                    Worker count auto-reduced to fit memory budget — protects server from OOM.
+                </div>
+                <div style="margin-top: 8px; font-size: 11px; color: var(--text-muted);">
+                    <i class="ph ph-info"></i>
+                    To change: edit <span class="mono">AUTO_SCALE_WORKERS</span> / <span class="mono">CPU_BUDGET_PERCENT</span> in <span class="mono">.env</span> then restart container.
+                </div>
+            </div>
+
             <!-- Log export -->
             <div class="card" style="margin-bottom: 16px;">
                 <div class="card-title" style="margin-bottom: 12px;"><i class="ph ph-download"></i> Log bundle export</div>
@@ -3115,6 +3183,11 @@
                 rawExpanded: false,
                 autoToggling: false,
                 _refreshTimer: null,
+
+                // ── Worker scaling shortcut ─────────────────────────────────
+                get ws() {
+                    return this.diag?.checks?.worker_scaling || {};
+                },
 
                 // ── AUTO mode derived state ─────────────────────────────────
                 get autoEnabled() {

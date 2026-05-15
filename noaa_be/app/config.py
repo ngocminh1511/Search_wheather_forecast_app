@@ -112,6 +112,9 @@ class Settings:
         self.CLOUD_KEEP_CYCLES: int = int(os.getenv("CLOUD_KEEP_CYCLES", "4"))
 
         # ── Pipeline Architecture (Workers & Limits) ────────────────────────
+        # If AUTO_SCALE_WORKERS=1 (default), parse/build/cut/tile/concurrency
+        # are recomputed below from CPU detection, OVERRIDING the env values.
+        # Set AUTO_SCALE_WORKERS=0 to use these explicit env values.
         self.MAX_DOWNLOAD_WORKERS: int = int(os.getenv("MAX_DOWNLOAD_WORKERS", "2"))
         self.MAX_PARSE_WORKERS: int = int(os.getenv("MAX_PARSE_WORKERS", "4"))
         self.MAX_BUILD_WORKERS: int = int(os.getenv("MAX_BUILD_WORKERS", "6"))
@@ -123,6 +126,34 @@ class Settings:
         self.MAX_PARALLEL_MAP_TYPES: int = max(
             1, int(os.getenv("MAX_PARALLEL_MAP_TYPES", "2"))
         )
+
+        # ── Auto-scaling worker pools ──────────────────────────────────────
+        # When enabled, the app reads cgroup CPU limit (Docker --cpus) first;
+        # if no container limit is set, it uses CPU_BUDGET_PERCENT of host
+        # cores — so when the server hosts multiple projects, set this lower.
+        self.AUTO_SCALE_WORKERS: bool = bool(int(os.getenv("AUTO_SCALE_WORKERS", "1")))
+        self.CPU_BUDGET_PERCENT: float = max(
+            10.0, min(100.0, float(os.getenv("CPU_BUDGET_PERCENT", "50")))
+        )
+        self.worker_budget: dict = {}  # populated below or stays empty when off
+
+        if self.AUTO_SCALE_WORKERS:
+            # Late import to avoid pulling logging deps before basicConfig runs.
+            from .services.worker_scaler import (
+                compute_worker_budget,
+                log_scaling_decision,
+                estimate_peak_ram_gb,
+            )
+            budget = compute_worker_budget(cpu_budget_percent=self.CPU_BUDGET_PERCENT)
+            self.MAX_PARSE_WORKERS = budget["parse"]
+            self.MAX_BUILD_WORKERS = budget["build"]
+            self.MAX_CUT_WORKERS = budget["cut"]
+            self.TILE_WORKERS = budget["tile"]
+            self.TILE_PROCESS_WORKERS = budget["tile"]
+            self.MAX_PARALLEL_MAP_TYPES = budget["concurrency"]
+            budget["_peak_ram_gb"] = estimate_peak_ram_gb(budget)
+            self.worker_budget = budget
+            log_scaling_decision(budget, peak_ram_estimate_gb=budget["_peak_ram_gb"])
 
         # ── Resource Guards ────────────────────────────────────────────────
         self.MAX_RAM_PERCENT: float = float(os.getenv("MAX_RAM_PERCENT", "85.0"))

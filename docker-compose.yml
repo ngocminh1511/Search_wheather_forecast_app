@@ -42,15 +42,24 @@ services:
       # and `docker compose down` doesn't lose history.
       - ./logs:/app/logs
 
-    # Resource limits — tune for your server. Defaults assume a modest VPS.
-    # Worker pools (MAX_PARSE/BUILD/CUT_WORKERS) should sum to ≤ cpus*1.5.
+    # Resource limits — also act as cgroup hints for the auto-scaler.
+    # When `cpus:` is set, the worker_scaler reads it via /sys/fs/cgroup/cpu.max
+    # and sizes pools accordingly (CPU_BUDGET_PERCENT is then ignored).
+    # When `cpus:` is NOT set, the app falls back to CPU_BUDGET_PERCENT of the
+    # host cores — set that lower in .env when the host runs multiple projects.
     deploy:
       resources:
         limits:
-          # Hard cap; container killed if exceeded.
-          memory: 6G
+          # Adjust to match your server. Examples:
+          #   small VPS (8GB total): memory: 4G
+          #   medium server (32GB):  memory: 16G
+          #   dedicated host:        memory: 24G
+          memory: 16G
+          # Uncomment to limit CPU explicitly (recommended for shared hosts).
+          # When set, auto-scaler reads this exact value:
+          #   cpus: '4'   # use only 4 cores total
         reservations:
-          memory: 2G
+          memory: 4G
 
     # Map filesystem / network behavior to host hardware.
     ulimits:
