@@ -130,6 +130,20 @@ class Settings:
         self.MIN_DISK_FREE_GB: float = float(os.getenv("MIN_DISK_FREE_GB", "5.0"))
         self.MAX_IOWAIT_PERCENT: float = float(os.getenv("MAX_IOWAIT_PERCENT", "30.0"))
 
+        # ── Persistent logs (file-based, rotating daily) ──────────────────
+        # Two files written: app.log (text) + events.jsonl (one JSON per line).
+        # Rotated at 00:00 UTC, oldest deleted after LOG_RETENTION_DAYS.
+        # Disable with LOG_FILE_ENABLED=0 (stdout + in-memory buffer remain).
+        self.LOG_FILE_ENABLED: bool = bool(int(os.getenv("LOG_FILE_ENABLED", "1")))
+        _log_dir_env = os.getenv("LOG_DIR", "").strip()
+        self.LOG_DIR: Path = (
+            Path(_log_dir_env).resolve()
+            if _log_dir_env
+            else (self.BASE_DIR / "logs")
+        )
+        self.LOG_RETENTION_DAYS: int = max(1, int(os.getenv("LOG_RETENTION_DAYS", "7")))
+        self.LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO").upper()
+
         # ── Server ─────────────────────────────────────────────────────────
         self.HOST: str = os.getenv("HOST", "0.0.0.0")
         self.PORT: int = int(os.getenv("PORT", "8000"))

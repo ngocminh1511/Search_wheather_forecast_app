@@ -130,8 +130,14 @@ def _cleanup_local_after_bunny_finalize(map_type: str, run_id: str, cfg: Any) ->
       - STAGING_DIR:    staging residuals (most already cleaned per-frame)
       - JSON_GRIDS_DIR: JSON grids (rain_advanced)
       - AVAILABLE_DIR:  per-map availability metadata file
+      - AVAILABLE_DIR:  master availability entry (file removed if empty)
+
+    Uses delete_service._rm() for fast Windows-aware deletion (rename-to-trash
+    + native `rd /s /q`). After deletion, verifies nothing was left behind and
+    logs a warning if cleanup was incomplete (e.g. Windows file lock).
     """
-    import shutil as _shutil
+    # Reuse the proven helpers from delete_service so cleanup paths stay in sync.
+    from .delete_service import _rm, _prune_master_availability
 
     dirs_to_remove = [
         cfg.DATA_DIR / map_type / run_id,
@@ -142,7 +148,7 @@ def _cleanup_local_after_bunny_finalize(map_type: str, run_id: str, cfg: Any) ->
     removed = 0
     for d in dirs_to_remove:
         if d.exists():
-            _shutil.rmtree(str(d), ignore_errors=True)
+            _rm(d)
             removed += 1
             log.debug("Local cleanup: removed %s", d)
 
@@ -155,10 +161,31 @@ def _cleanup_local_after_bunny_finalize(map_type: str, run_id: str, cfg: Any) ->
         avail_file.unlink(missing_ok=True)
         removed += 1
 
+    # Master availability entry — prune this map_type's slot; the file is
+    # deleted entirely once all maps have been finalized for this run_id.
+    try:
+        _prune_master_availability(run_id, map_type, cfg)
+    except Exception as exc:
+        log.warning(
+            "Cleanup: master availability prune failed %s/%s: %s",
+            map_type, run_id, exc,
+        )
+
+    # Verification: anything left behind is a red flag (likely Windows lock).
+    residuals = [d for d in dirs_to_remove if d.exists()]
+    if avail_file.exists():
+        residuals.append(avail_file)
+    if residuals:
+        log.warning(
+            "Local cleanup INCOMPLETE for %s/%s — %d item(s) remain: %s",
+            map_type, run_id, len(residuals),
+            ", ".join(str(p) for p in residuals[:5]),
+        )
+
     if removed:
         log.info(
-            "Local cleanup after Bunny finalize: %s/%s — removed %d items",
-            map_type, run_id, removed,
+            "Local cleanup after Bunny finalize: %s/%s — removed %d items (residuals=%d)",
+            map_type, run_id, removed, len(residuals),
         )
 
 
@@ -259,6 +286,12 @@ def _job_for_map_type(
         status.pop("cancel_requested", None)
         db_update_job_status(map_type, status)
         progress_tracker.update(map_type, step="done", step_detail="Hoàn thành ✓")
+        # Map recovered → reset pause fingerprint để lần lỗi kế tiếp gửi lại
+        try:
+            from ..services.pause_notifier import clear_pause
+            clear_pause(map_type)
+        except Exception:
+            pass
     except JobCancelledError:
         log.info("Job cancelled by user: map_type=%s", map_type)
         status = db_get_job_status(map_type)
@@ -267,6 +300,17 @@ def _job_for_map_type(
         status.pop("last_error", None)
         db_update_job_status(map_type, status)
         progress_tracker.update(map_type, step="cancelled", step_detail="Đã hủy bởi người dùng ✗")
+        try:
+            from ..services.pause_notifier import notify_pause
+            notify_pause(
+                map_type,
+                reason="cancelled",
+                title=f"⏹ {map_type}: Job bị hủy",
+                detail=f"Bản đồ `{map_type}` bị hủy thủ công bởi người dùng.",
+                level="warning",
+            )
+        except Exception:
+            pass
     except Exception as exc:
         log.exception("Job failed for map_type=%s: %s", map_type, exc)
         status = db_get_job_status(map_type)
@@ -275,6 +319,21 @@ def _job_for_map_type(
         status.pop("cancel_requested", None)
         db_update_job_status(map_type, status)
         progress_tracker.update(map_type, step="error", step_detail=str(exc)[:120])
+        try:
+            from ..services.pause_notifier import notify_pause
+            exc_type = type(exc).__name__
+            notify_pause(
+                map_type,
+                reason=f"error::{exc_type}",
+                title=f"🚨 {map_type}: Job thất bại",
+                detail=(
+                    f"*Lỗi*: `{exc_type}`\n"
+                    f"```\n{str(exc)[:300]}\n```"
+                ),
+                level="critical",
+            )
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -338,7 +397,7 @@ def _cold_fffs_covered(map_type: str, current_run_id: str, fffs: list[int], cfg:
 
     # ── Legacy mode: verify source files exist in local LIVE ──────────────
     # Use the widest tier window as the source search horizon
-    max_search_age = max(t[1] for t in spec.cold_tiers)
+    max_search_age = max((t[1] for t in spec.cold_tiers), default=0)
 
     is_json_only = map_type in cfg.JSON_ONLY_MAP_TYPES
     base_dir = cfg.JSON_GRIDS_DIR if is_json_only else cfg.TILES_DIR
@@ -1065,6 +1124,113 @@ def _set_scheduler_enabled(enabled: bool) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Retention safety-net — enforces KEEP_CYCLES by deleting runs older than the
+# newest N cycles. Catches the rare case where per-run auto-cleanup failed
+# (e.g. Windows file lock) or BUNNY_KEEP_LOCAL_AFTER_FINALIZE was left on.
+# Never deletes a run that is current_run / previous_run on Bunny.
+# ---------------------------------------------------------------------------
+
+def _retention_check() -> None:
+    """Delete local + Bunny data for runs older than the newest KEEP_CYCLES.
+
+    Safety guards (in order):
+      1. Skip map_types currently locked for deletion (in-flight delete job).
+      2. Skip map_types currently `running` (don't yank disk from active job).
+      3. Skip run_ids equal to Bunny `current_run` or `previous_run` (live).
+      4. Only delete what's beyond the newest `cfg.KEEP_CYCLES` runs.
+    """
+    cfg = get_settings()
+    keep = max(1, int(getattr(cfg, "KEEP_CYCLES", 4)))
+
+    # Snapshot Bunny pointers once (current + previous = always-protect set).
+    bunny_protected: dict[str, set[str]] = {}
+    if cfg.BUNNY_ENABLED:
+        try:
+            from .bunny_storage import get_bunny_client
+            bunny = get_bunny_client()
+            if bunny is not None:
+                for mt in MAP_SPECS:
+                    try:
+                        ptr = bunny.read_pointer(mt)
+                        protect = set()
+                        if ptr:
+                            cur = ptr.get("current_run")
+                            prev = ptr.get("previous_run")
+                            if cur:
+                                protect.add(cur)
+                            if prev:
+                                protect.add(prev)
+                        bunny_protected[mt] = protect
+                    except Exception as exc:
+                        # If we can't read pointer, protect everything for this
+                        # map_type — better keep junk than risk deleting live data.
+                        log.warning(
+                            "Retention: cannot read Bunny pointer for %s (%s) — "
+                            "skipping retention for this map this round",
+                            mt, exc,
+                        )
+                        bunny_protected[mt] = None  # type: ignore[assignment]
+        except Exception as exc:
+            log.warning("Retention: Bunny client unavailable (%s) — proceeding without pointer guard", exc)
+
+    from .delete_service import _discover_run_ids, is_map_locked, enqueue_delete
+
+    to_delete_by_map: dict[str, list[str]] = {}
+
+    for map_type in MAP_SPECS:
+        if is_map_locked(map_type):
+            log.debug("Retention: skip %s (locked for deletion)", map_type)
+            continue
+        try:
+            status = db_get_job_status(map_type) or {}
+            if status.get("status") == "running":
+                log.debug("Retention: skip %s (job running)", map_type)
+                continue
+        except Exception:
+            pass
+
+        protect = bunny_protected.get(map_type)
+        # Sentinel: pointer-unreadable → treat as "skip this map this round"
+        if protect is None and cfg.BUNNY_ENABLED:
+            continue
+        protect = protect or set()
+
+        all_runs = _discover_run_ids(map_type, cfg)  # newest-first
+        if len(all_runs) <= keep:
+            continue
+
+        # Everything beyond the newest `keep` runs is a deletion candidate,
+        # minus anything currently pointed-to on Bunny.
+        for rid in all_runs[keep:]:
+            if rid in protect:
+                log.debug("Retention: protect %s/%s (Bunny pointer)", map_type, rid)
+                continue
+            to_delete_by_map.setdefault(map_type, []).append(rid)
+
+    if not to_delete_by_map:
+        log.debug("Retention: nothing to delete (KEEP_CYCLES=%d)", keep)
+        return
+
+    total_runs = sum(len(v) for v in to_delete_by_map.values())
+    log.info(
+        "Retention: deleting %d run(s) across %d map(s) (KEEP_CYCLES=%d)",
+        total_runs, len(to_delete_by_map), keep,
+    )
+
+    # enqueue_delete throttles concurrency internally (MAX_CONCURRENT_MAP_DELETES).
+    # We submit one job per map_type so each gets its own run_ids list.
+    for map_type, rids in to_delete_by_map.items():
+        try:
+            job_id = enqueue_delete([map_type], rids)
+            log.info(
+                "Retention: enqueued delete job %s for %s (%d runs: %s)",
+                job_id, map_type, len(rids), ", ".join(rids[:3]) + (" …" if len(rids) > 3 else ""),
+            )
+        except Exception as exc:
+            log.warning("Retention: enqueue_delete failed for %s: %s", map_type, exc)
+
+
+# ---------------------------------------------------------------------------
 # Catchup safety-net job — runs every 2h, fires any map whose Bunny pointer
 # has fallen behind the latest accessible NOAA cycle.
 # ---------------------------------------------------------------------------
@@ -1106,8 +1272,12 @@ def _catchup_check() -> None:
                     ptr = bunny.read_pointer(map_type)
                     if ptr and ptr.get("current_run") == run_id:
                         continue
-                except Exception:
-                    pass
+                except Exception as exc:
+                    # Cannot confirm pointer state — skip this map rather than
+                    # blindly re-firing it. Firing on Bunny API failure would
+                    # redundantly reprocess all maps every 2h during an outage.
+                    log.debug("Catchup: cannot read Bunny pointer for %s (%s) — skipping", map_type, exc)
+                    continue
 
             log.info("Catchup: firing %s (target run %s)", map_type, run_id)
             trigger_job(map_type)
@@ -1177,6 +1347,19 @@ def _build_scheduler() -> BackgroundScheduler:
         name="Catchup coverage check",
         replace_existing=True,
         misfire_grace_time=600,
+    )
+
+    # Retention enforcement every 6h at :45 (offset from cron fires at xx:05-17
+    # and catchup at xx:30). Deletes runs beyond KEEP_CYCLES if not pointed-to
+    # by Bunny. Safe-by-default: skips locked/running maps, skips on pointer
+    # read failure.
+    sched.add_job(
+        func=_retention_check,
+        trigger=CronTrigger(hour='2,8,14,20', minute=45, timezone='UTC'),
+        id="retention_check",
+        name="Retention enforcement (KEEP_CYCLES)",
+        replace_existing=True,
+        misfire_grace_time=900,
     )
 
     # Daily aggregation report

@@ -46,6 +46,27 @@
         [x-cloak] { display: none !important; }
         .cycle-row-active { background: rgba(59, 130, 246, 0.08) !important; border-left: 3px solid var(--accent-blue); }
 
+        /* AUTO mode pulsing indicator */
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.15); opacity: 0.7; }
+        }
+
+        /* Sidebar AUTO status pill — persistent indicator visible on every view */
+        .auto-pill {
+            display: inline-flex; align-items: center; gap: 8px;
+            padding: 6px 12px; border-radius: 999px;
+            font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px;
+            margin: 0 0 16px 0; cursor: pointer;
+            transition: 0.2s; user-select: none;
+        }
+        .auto-pill .dot { width: 8px; height: 8px; border-radius: 50%; }
+        .auto-pill.on  { background: rgba(16,185,129,0.12); color: var(--accent-green); border: 1px solid rgba(16,185,129,0.3); }
+        .auto-pill.on .dot  { background: var(--accent-green); box-shadow: 0 0 10px rgba(16,185,129,0.8); animation: pulse 2s ease-in-out infinite; }
+        .auto-pill.off { background: rgba(239,68,68,0.10); color: var(--accent-red); border: 1px solid rgba(239,68,68,0.3); }
+        .auto-pill.off .dot { background: var(--accent-red); }
+        .auto-pill:hover { transform: translateX(2px); }
+
         /* Scheduler toggle switch */
         .sched-switch { position: relative; display: inline-block; width: 56px; height: 30px; cursor: pointer; }
         .sched-switch input { opacity: 0; width: 0; height: 0; }
@@ -427,7 +448,15 @@
         <div class="logo-area" onclick="switchView('view-overview')">
             <i class="ph-fill ph-hurricane"></i> Weather Core
         </div>
-        
+
+        <!-- Persistent AUTO mode indicator (clickable → jumps to Diagnostics) -->
+        <div id="sidebarAutoPill" class="auto-pill off" onclick="document.querySelectorAll('.nav-item')[9].click()"
+             title="Click to open Diagnostics — toggle Auto here">
+            <span class="dot"></span>
+            <span>AUTO</span>
+            <span id="sidebarAutoLabel">…</span>
+        </div>
+
         <div class="nav-menu">
             <div class="nav-item active" onclick="switchView('view-overview', this)"><i class="ph ph-cloud-sun"></i> Overview</div>
             <div class="nav-item" onclick="switchView('view-pipeline', this)"><i class="ph ph-wind"></i> Pipeline Runs <span class="badge-tag tag-real">Live</span></div>
@@ -438,6 +467,7 @@
             <div class="nav-item" onclick="switchView('view-cycles', this)"><i class="ph ph-cloud-fog"></i> Cycle History <span class="badge-tag tag-real">Live</span></div>
             <div class="nav-item" onclick="switchView('view-cdn', this)"><i class="ph ph-globe-hemisphere-east"></i> CDN Analytics <span class="badge-tag tag-real">Live</span></div>
             <div class="nav-item" onclick="switchView('view-settings', this)"><i class="ph ph-gear-six"></i> Settings &amp; Alerts <span class="badge-tag tag-real">Live</span></div>
+            <div class="nav-item" onclick="switchView('view-diagnostics', this)"><i class="ph ph-stethoscope"></i> Diagnostics <span class="badge-tag tag-real">Live</span></div>
         </div>
     </nav>
 
@@ -1235,6 +1265,154 @@
             </div>
         </div>
 
+        <!-- ───── Diagnostics view ───── -->
+        <div id="view-diagnostics" class="view-panel" x-data="diagnosticsView()" x-init="init()">
+            <div class="view-header">
+                <h2 class="view-title"><i class="ph ph-stethoscope"></i> Diagnostics</h2>
+                <div style="display: flex; gap: 8px;">
+                    <button @click="refresh()" :disabled="loading"
+                            style="background: var(--accent-blue); color: white; border: 0; padding: 8px 16px; border-radius: 8px; cursor: pointer;">
+                        <i class="ph ph-arrow-clockwise"></i> <span x-text="loading ? 'Loading…' : 'Refresh'"></span>
+                    </button>
+                    <button @click="runSmokeTest()" :disabled="smokeRunning"
+                            title="Trigger 1-frame test of all 5 maps (verify full pipeline end-to-end)"
+                            style="background: var(--accent-green); color: white; border: 0; padding: 8px 16px; border-radius: 8px; cursor: pointer;">
+                        <i class="ph ph-flask"></i> <span x-text="smokeRunning ? 'Running…' : 'Run smoke test'"></span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- AUTO MODE banner — most prominent control on the page -->
+            <div class="card" style="margin-bottom: 16px;" x-show="diag !== null" x-cloak>
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;">
+                    <div style="display: flex; align-items: center; gap: 16px;">
+                        <div :style="`width: 18px; height: 18px; border-radius: 50%; background: ${autoActive ? 'var(--accent-green)' : 'var(--accent-red)'}; box-shadow: 0 0 20px ${autoActive ? 'rgba(16,185,129,0.7)' : 'rgba(239,68,68,0.5)'}; animation: ${autoActive ? 'pulse 2s ease-in-out infinite' : 'none'};`"></div>
+                        <div>
+                            <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--text-muted); font-weight: 600;">Auto mode</div>
+                            <div style="font-size: 22px; font-weight: 700; margin-top: 2px;"
+                                 :style="`color: ${autoActive ? 'var(--accent-green)' : 'var(--accent-red)'}`"
+                                 x-text="autoActive ? 'RUNNING' : (autoEnabled ? 'STOPPED' : 'PAUSED')"></div>
+                            <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;"
+                                 x-text="autoStatusDetail()"></div>
+                        </div>
+                    </div>
+                    <label class="sched-switch" title="Bật/tắt auto pipeline (lưu vào DB, tồn tại sau restart)">
+                        <input type="checkbox" :checked="autoEnabled" :disabled="autoToggling" @change="toggleAuto($event.target.checked)">
+                        <span class="sched-slider"></span>
+                    </label>
+                </div>
+                <div x-show="nextFiresList.length > 0" x-cloak
+                     style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--card-border); display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; font-size: 12px;">
+                    <template x-for="fire in nextFiresList" :key="fire.id">
+                        <div style="display: flex; justify-content: space-between; gap: 8px;">
+                            <span class="mono" style="color: var(--text-muted);" x-text="fire.label"></span>
+                            <span class="mono" x-text="fire.when"></span>
+                        </div>
+                    </template>
+                </div>
+            </div>
+
+            <!-- Overall health banner -->
+            <div class="card" style="margin-bottom: 16px;" x-show="diag !== null" x-cloak>
+                <div style="display: flex; align-items: center; gap: 16px;">
+                    <div :style="`width: 14px; height: 14px; border-radius: 50%; background: ${diag?.ok ? 'var(--accent-green)' : 'var(--accent-red)'}; box-shadow: 0 0 16px ${diag?.ok ? 'rgba(16,185,129,0.6)' : 'rgba(239,68,68,0.6)'};`"></div>
+                    <div>
+                        <div style="font-size: 18px; font-weight: 600;" x-text="diag?.ok ? 'All systems healthy' : 'Issues detected'"></div>
+                        <div style="font-size: 12px; color: var(--text-muted);" x-text="`Snapshot taken at ${formatTs(diag?.generated_at)}`"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 7 subsystem cards -->
+            <div class="card" style="margin-bottom: 16px;" x-show="diag !== null" x-cloak>
+                <div class="card-title" style="margin-bottom: 12px;"><i class="ph ph-heartbeat"></i> Subsystem health</div>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px;">
+                    <template x-for="[key, check] in Object.entries(diag?.checks || {})" :key="key">
+                        <div :style="`padding: 12px; border-radius: 8px; background: ${check.ok ? 'rgba(16,185,129,0.08)' : 'rgba(239,68,68,0.08)'}; border: 1px solid ${check.ok ? 'rgba(16,185,129,0.25)' : 'rgba(239,68,68,0.25)'};`">
+                            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+                                <i :class="check.ok ? 'ph-fill ph-check-circle' : 'ph-fill ph-warning-circle'"
+                                   :style="`color: ${check.ok ? 'var(--accent-green)' : 'var(--accent-red)'}; font-size: 18px;`"></i>
+                                <span style="font-weight: 600;" x-text="prettyName(key)"></span>
+                            </div>
+                            <div style="font-size: 12px; color: var(--text-muted); line-height: 1.6;" x-html="summarizeCheck(key, check)"></div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+
+            <!-- Log export -->
+            <div class="card" style="margin-bottom: 16px;">
+                <div class="card-title" style="margin-bottom: 12px;"><i class="ph ph-download"></i> Log bundle export</div>
+                <div style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">
+                    Download a ZIP bundle of logs + health snapshot + DB metrics. Send the ZIP to Claude when reporting issues.
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                    <!-- Single day -->
+                    <div style="padding: 16px; background: rgba(0,0,0,0.2); border-radius: 8px; border: 1px solid var(--card-border);">
+                        <div style="text-transform: uppercase; font-size: 11px; letter-spacing: 0.5px; color: var(--text-muted); margin-bottom: 8px;">
+                            Single day (UTC)
+                        </div>
+                        <div style="margin-bottom: 12px;">
+                            <select x-model="selectedDate"
+                                    style="width: 100%; background: rgba(0,0,0,0.4); color: var(--text-main); border: 1px solid var(--card-border); padding: 10px 12px; border-radius: 6px; font-family: 'JetBrains Mono', monospace;">
+                                <template x-if="availableDates.length === 0">
+                                    <option value="">(no log files yet)</option>
+                                </template>
+                                <template x-for="d in availableDates" :key="d">
+                                    <option :value="d" x-text="d"></option>
+                                </template>
+                            </select>
+                        </div>
+                        <button @click="downloadDate()" :disabled="!selectedDate || downloading"
+                                style="width: 100%; background: var(--accent-cyan); color: white; border: 0; padding: 10px; border-radius: 6px; cursor: pointer; font-weight: 600;">
+                            <i class="ph ph-download-simple"></i>
+                            <span x-text="downloading ? 'Downloading…' : 'Download this day'"></span>
+                        </button>
+                    </div>
+
+                    <!-- Aggregate -->
+                    <div style="padding: 16px; background: rgba(0,0,0,0.2); border-radius: 8px; border: 1px solid var(--card-border);">
+                        <div style="text-transform: uppercase; font-size: 11px; letter-spacing: 0.5px; color: var(--text-muted); margin-bottom: 8px;">
+                            Aggregate last N days
+                        </div>
+                        <div style="margin-bottom: 12px;">
+                            <select x-model.number="aggregateDays"
+                                    style="width: 100%; background: rgba(0,0,0,0.4); color: var(--text-main); border: 1px solid var(--card-border); padding: 10px 12px; border-radius: 6px; font-family: 'JetBrains Mono', monospace;">
+                                <option value="1">Last 1 day</option>
+                                <option value="3">Last 3 days</option>
+                                <option value="7">Last 7 days (full retention)</option>
+                            </select>
+                        </div>
+                        <button @click="downloadAggregate()" :disabled="downloading"
+                                style="width: 100%; background: var(--accent-purple); color: white; border: 0; padding: 10px; border-radius: 6px; cursor: pointer; font-weight: 600;">
+                            <i class="ph ph-archive"></i>
+                            <span x-text="downloading ? 'Downloading…' : 'Download bundle'"></span>
+                        </button>
+                    </div>
+                </div>
+
+                <div style="margin-top: 12px; font-size: 11px; color: var(--text-muted);" x-show="availableDates.length > 0">
+                    <i class="ph ph-info"></i>
+                    <span x-text="`${availableDates.length} day(s) of logs available on server`"></span>
+                </div>
+            </div>
+
+            <!-- Raw JSON viewer (collapsed by default) -->
+            <div class="card" x-show="diag !== null" x-cloak>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <div class="card-title"><i class="ph ph-code"></i> Raw JSON</div>
+                    <button @click="rawExpanded = !rawExpanded"
+                            style="background: none; border: 1px solid var(--card-border); color: var(--text-muted); padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 12px;">
+                        <span x-text="rawExpanded ? 'Hide' : 'Show'"></span>
+                    </button>
+                </div>
+                <pre x-show="rawExpanded" class="mono"
+                     style="background: rgba(0,0,0,0.4); padding: 16px; border-radius: 8px; font-size: 11px; max-height: 480px; overflow: auto; line-height: 1.5;"
+                     x-text="JSON.stringify(diag, null, 2)"></pre>
+            </div>
+        </div>
+
     </main>
 
     <div id="toast-container"></div>
@@ -1259,7 +1437,8 @@
                 const map = {
                     'view-overview': 0, 'view-pipeline': 1, 'view-manual': 2,
                     'view-logs': 3, 'view-storage': 4, 'view-benchmark': 5,
-                    'view-cycles': 6, 'view-cdn': 7, 'view-settings': 8
+                    'view-cycles': 6, 'view-cdn': 7, 'view-settings': 8,
+                    'view-diagnostics': 9
                 };
                 document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
                 document.querySelectorAll('.nav-item')[map[viewId]].classList.add('active');
@@ -1321,6 +1500,37 @@
             const sep = url.includes('?') ? '&' : '?';
             return `${url}${sep}admin_token=${encodeURIComponent(tok)}`;
         }
+
+        // ─── Sidebar AUTO pill ───────────────────────────────────────
+        // Updated by Diagnostics view on every refresh, plus an independent
+        // poller below so the pill stays accurate on every view.
+        function updateSidebarAutoPill(diag) {
+            const pill = document.getElementById('sidebarAutoPill');
+            const label = document.getElementById('sidebarAutoLabel');
+            if (!pill || !label) return;
+            const s = diag?.checks?.scheduler;
+            const enabled = !!s?.enabled;
+            const running = !!s?.running;
+            if (enabled && running) {
+                pill.classList.add('on'); pill.classList.remove('off');
+                label.textContent = 'ON';
+            } else {
+                pill.classList.add('off'); pill.classList.remove('on');
+                label.textContent = enabled ? 'STOPPED' : 'OFF';
+            }
+        }
+        async function pollAutoPill() {
+            try {
+                const tok = getAdminToken();
+                const headers = {};
+                if (tok) headers['X-Admin-Token'] = tok;
+                const res = await fetch('/api/v1/admin/diagnostics?probe_noaa=false', { headers });
+                if (res.ok) updateSidebarAutoPill(await res.json());
+            } catch (_e) { /* silent — pill stays at last known state */ }
+        }
+        setInterval(pollAutoPill, 30000);
+        // Kick off the first poll once token is set / on load.
+        setTimeout(pollAutoPill, 1500);
 
         async function apiCall(url, options={}) {
             const tok = getAdminToken();
@@ -2891,6 +3101,237 @@
                     } catch (e) {
                         this.previewMd = '✗ Error: ' + e.message;
                     }
+                },
+            }));
+
+            Alpine.data('diagnosticsView', () => ({
+                diag: null,
+                availableDates: [],
+                selectedDate: '',
+                aggregateDays: 7,
+                loading: false,
+                downloading: false,
+                smokeRunning: false,
+                rawExpanded: false,
+                autoToggling: false,
+                _refreshTimer: null,
+
+                // ── AUTO mode derived state ─────────────────────────────────
+                get autoEnabled() {
+                    // Persisted DB setting (survives restart).
+                    return !!this.diag?.checks?.scheduler?.enabled;
+                },
+                get autoActive() {
+                    // BOTH enabled AND scheduler thread currently running.
+                    const s = this.diag?.checks?.scheduler;
+                    return !!(s && s.enabled && s.running);
+                },
+                get nextFiresList() {
+                    const nf = this.diag?.checks?.scheduler?.next_fires || {};
+                    return Object.entries(nf)
+                        .filter(([_, when]) => !!when)
+                        .map(([id, when]) => ({
+                            id,
+                            label: id.replace(/^job_/, ''),
+                            when: this._fmtFire(when),
+                        }))
+                        .sort((a, b) => a.when.localeCompare(b.when));
+                },
+                _fmtFire(iso) {
+                    try {
+                        const d = new Date(iso);
+                        return d.toLocaleString([], { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+                    } catch (e) { return iso; }
+                },
+                autoStatusDetail() {
+                    if (this.autoActive) {
+                        const slots = this.diag?.checks?.scheduler?.active_slots ?? 0;
+                        const queued = this.diag?.checks?.scheduler?.queued_jobs ?? 0;
+                        return `Scheduler running · ${this.nextFiresList.length} cron jobs · ${slots} active slot(s) · ${queued} queued`;
+                    }
+                    if (this.autoEnabled) return 'Enabled in DB but scheduler thread is NOT running. Try restarting the container.';
+                    return 'Auto pipeline is paused. Flip the toggle to resume scheduled runs.';
+                },
+
+                async init() {
+                    await this.refresh();
+                    await this.fetchDates();
+                    // Auto-refresh health snapshot every 30s while view is mounted.
+                    this._refreshTimer = setInterval(() => this.refresh(true), 30000);
+                },
+
+                async toggleAuto(checked) {
+                    if (this.autoToggling) return;
+                    this.autoToggling = true;
+                    try {
+                        const endpoint = checked
+                            ? '/api/v1/admin/scheduler/enable'
+                            : '/api/v1/admin/scheduler/disable';
+                        const data = await apiCall(endpoint, { method: 'POST' });
+                        if (data) {
+                            showToast(checked ? 'Auto pipeline RESUMED' : 'Auto pipeline PAUSED',
+                                      checked ? 'success' : 'warn');
+                            // Refresh immediately so banner reflects new state
+                            await this.refresh(true);
+                            updateSidebarAutoPill(this.diag);
+                        }
+                    } catch (e) {
+                        showToast('Toggle failed: ' + e.message, 'error');
+                    } finally {
+                        this.autoToggling = false;
+                    }
+                },
+
+                async refresh(silent = false) {
+                    if (this.loading) return;
+                    this.loading = true;
+                    try {
+                        const url = silent
+                            ? '/api/v1/admin/diagnostics?probe_noaa=false'
+                            : '/api/v1/admin/diagnostics';
+                        const data = await apiCall(url);
+                        if (data) {
+                            this.diag = data;
+                            updateSidebarAutoPill(data);
+                        }
+                    } catch (e) {
+                        if (!silent) showToast('Diagnostics fetch failed: ' + e.message, 'error');
+                    } finally {
+                        this.loading = false;
+                    }
+                },
+
+                async fetchDates() {
+                    try {
+                        const data = await apiCall('/api/v1/admin/diagnostics/log-dates');
+                        this.availableDates = (data?.dates || []).slice().reverse();
+                        if (!this.selectedDate && this.availableDates.length > 0) {
+                            this.selectedDate = this.availableDates[0];
+                        }
+                    } catch (e) {
+                        console.error('fetchDates:', e);
+                    }
+                },
+
+                async _downloadBinary(url, filename) {
+                    // apiCall() returns parsed JSON, can't be used for binary ZIPs.
+                    // Use fetch directly with the admin token header.
+                    const tok = getAdminToken();
+                    const headers = {};
+                    if (tok) headers['X-Admin-Token'] = tok;
+                    const res = await fetch(url, { headers });
+                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                    const blob = await res.blob();
+                    this._triggerDownload(blob, filename);
+                },
+
+                async downloadDate() {
+                    if (!this.selectedDate || this.downloading) return;
+                    this.downloading = true;
+                    try {
+                        await this._downloadBinary(
+                            `/api/v1/admin/diagnostics/export?date=${this.selectedDate}`,
+                            `noaa_be_diag_${this.selectedDate.replace(/-/g, '')}.zip`,
+                        );
+                        showToast(`Downloaded logs for ${this.selectedDate}`, 'success');
+                    } catch (e) {
+                        showToast('Download failed: ' + e.message, 'error');
+                    } finally {
+                        this.downloading = false;
+                    }
+                },
+
+                async downloadAggregate() {
+                    if (this.downloading) return;
+                    this.downloading = true;
+                    try {
+                        const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
+                        await this._downloadBinary(
+                            `/api/v1/admin/diagnostics/export?days=${this.aggregateDays}`,
+                            `noaa_be_diag_last${this.aggregateDays}d_${stamp}.zip`,
+                        );
+                        showToast(`Downloaded last ${this.aggregateDays} day bundle`, 'success');
+                    } catch (e) {
+                        showToast('Download failed: ' + e.message, 'error');
+                    } finally {
+                        this.downloading = false;
+                    }
+                },
+
+                async runSmokeTest() {
+                    if (this.smokeRunning) return;
+                    if (!confirm('Trigger 1-frame test of ALL 5 maps?\n\nThis is safe and fast (~5-15 min).')) return;
+                    this.smokeRunning = true;
+                    try {
+                        await apiCall('/api/v1/admin/trigger-job-all?max_fff=3&stagger_seconds=5',
+                                      { method: 'POST' });
+                        showToast('Smoke test triggered. Watch the Pipeline Runs tab for progress.', 'success');
+                    } catch (e) {
+                        showToast('Smoke test failed: ' + e.message, 'error');
+                    } finally {
+                        // The actual run takes minutes; we re-enable the button immediately so user
+                        // can re-trigger if needed. The Pipeline view shows live progress.
+                        setTimeout(() => { this.smokeRunning = false; }, 3000);
+                    }
+                },
+
+                _triggerDownload(blob, filename) {
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = filename;
+                    document.body.appendChild(a);
+                    a.click();
+                    setTimeout(() => {
+                        window.URL.revokeObjectURL(url);
+                        a.remove();
+                    }, 100);
+                },
+
+                prettyName(key) {
+                    return ({
+                        db: 'Database',
+                        scheduler: 'Scheduler',
+                        orchestrator: 'Pipeline Orchestrator',
+                        resources: 'System Resources',
+                        last_cycle: 'Last Cycle',
+                        bunny: 'Bunny CDN',
+                        noaa_probe: 'NOAA Reachability',
+                    })[key] || key;
+                },
+
+                summarizeCheck(key, c) {
+                    if (!c) return '';
+                    if (c.error) return `<span style="color: var(--accent-red);">Error: ${c.error}</span>`;
+                    switch (key) {
+                        case 'db':
+                            return `cycle_metrics last 24h: <b>${c.cycle_metrics_last_24h ?? 0}</b>`;
+                        case 'scheduler':
+                            const nextFires = c.next_fires ? Object.keys(c.next_fires).length : 0;
+                            return `enabled: <b>${c.enabled}</b> · running: <b>${c.running}</b> · slots: <b>${c.active_slots ?? '?'}</b> · cron jobs: <b>${nextFires}</b>`;
+                        case 'orchestrator':
+                            const active = (c.active_runs || []).length;
+                            return `is_running: <b>${c.is_running}</b> · active runs: <b>${active}</b>${active > 0 ? ' (' + c.active_runs.join(', ') + ')' : ''}`;
+                        case 'resources':
+                            return `disk: <b>${c.disk_free_gb}GB free</b> · RAM: <b>${c.ram_percent}%</b> · CPU: <b>${c.cpu_percent}%</b> · IOWait: <b>${c.iowait_percent}%</b>`;
+                        case 'last_cycle':
+                            if (c.error) return `<span style="color: var(--accent-red);">${c.error}</span>`;
+                            return `<b>${c.run_id}</b> · ${c.finished_maps}/${c.total_maps_in_run || 5} maps · ${c.age_hours ?? '?'}h ago · pointer: <b>${c.pointer_switch_ok ? '✓' : '✗'}</b>`;
+                        case 'bunny':
+                            if (!c.enabled) return '<span style="color: var(--text-muted);">Disabled in config</span>';
+                            return `sample: ${c.sample_map} · current: <b>${c.current_run || 'n/a'}</b> · prev: <b>${c.previous_run || 'none'}</b>`;
+                        case 'noaa_probe':
+                            return c.reachable
+                                ? `reachable in <b>${c.latency_ms}ms</b> (HTTP ${c.status})`
+                                : `<span style="color: var(--accent-red);">unreachable</span>`;
+                    }
+                    return JSON.stringify(c);
+                },
+
+                formatTs(iso) {
+                    if (!iso) return '-';
+                    try { return new Date(iso).toLocaleString(); }
+                    catch (e) { return iso; }
                 },
             }));
         });

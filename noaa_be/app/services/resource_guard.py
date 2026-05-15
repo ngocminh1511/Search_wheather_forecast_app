@@ -25,6 +25,7 @@ def check_resources(stage: str) -> bool:
         free_gb = disk_usage.free / (1024**3)
         if free_gb < cfg.MIN_DISK_FREE_GB:
             log.warning(f"Resource Guard: Low disk space ({free_gb:.1f} GB < {cfg.MIN_DISK_FREE_GB} GB). Throttling {stage}.")
+            _notify_throttle("disk", free_gb, cfg.MIN_DISK_FREE_GB, is_pct=False)
             return False
     except Exception as e:
         log.error(f"Error checking disk space: {e}")
@@ -35,15 +36,14 @@ def check_resources(stage: str) -> bool:
             mem = psutil.virtual_memory()
             if mem.percent > cfg.MAX_RAM_PERCENT:
                 log.warning(f"Resource Guard: High RAM usage ({mem.percent}% > {cfg.MAX_RAM_PERCENT}%). Throttling {stage}.")
+                _notify_throttle("ram", mem.percent, cfg.MAX_RAM_PERCENT)
                 return False
-                
-            # For CPU, we only care if it's consistently pinned at 100%, 
-            # so we use a non-blocking check over a very short interval
+
             cpu_percent = psutil.cpu_percent(interval=0.1)
             if cpu_percent > cfg.MAX_CPU_PERCENT:
-                # CPU spike is acceptable for some stages, but we might want to throttle heavy stages
                 if stage in ("build", "cut"):
                     log.warning(f"Resource Guard: High CPU usage ({cpu_percent}% > {cfg.MAX_CPU_PERCENT}%). Throttling {stage}.")
+                    _notify_throttle("cpu", cpu_percent, cfg.MAX_CPU_PERCENT)
                     return False
             iowait = 0.0
             try:
@@ -55,11 +55,21 @@ def check_resources(stage: str) -> bool:
                     "Resource Guard: High IO wait (%.1f%% > %.1f%%). Throttling %s.",
                     iowait, cfg.MAX_IOWAIT_PERCENT, stage
                 )
+                _notify_throttle("iowait", iowait, cfg.MAX_IOWAIT_PERCENT)
                 return False
         except Exception as e:
             log.error(f"Error checking CPU/RAM: {e}")
             
     return True
+
+def _notify_throttle(resource: str, value: float, threshold: float, is_pct: bool = True) -> None:
+    """Fire Telegram throttle warning (non-fatal, best-effort)."""
+    try:
+        from .pause_notifier import notify_resource_throttle
+        notify_resource_throttle(resource, value, threshold)
+    except Exception:
+        pass
+
 
 def get_resource_metrics() -> dict:
     """Return current resource usage metrics for monitoring."""

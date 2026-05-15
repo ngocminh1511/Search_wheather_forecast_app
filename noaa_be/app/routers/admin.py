@@ -132,26 +132,58 @@ def trigger_all_jobs(
         description="Manual override of GFS cycle for all maps (YYYYMMDD_HHz). "
                     "Omit to auto-discover latest cycle per map.",
     ),
+    stagger_seconds: float = Query(
+        default=5.0,
+        ge=0.0,
+        le=600.0,
+        description="Delay between submitting each map_type. Mirrors auto "
+                    "mode's 3-min cron stagger but tighter for manual testing. "
+                    "Set to 0 to submit all at once (legacy behaviour).",
+    ),
 ) -> dict:
     """Fire the full auto pipeline for ALL maps. Same code path as scheduler.
 
     This is the "Run Pipeline" button in the manual admin UI — identical to
     auto except you can pass `max_fff` and/or `run_id`.
-    Goes through the concurrency-throttled wrapper so behaviour matches auto.
+
+    Submits are STAGGERED by `stagger_seconds` (default 5s) so that, like the
+    cron-driven auto mode, maps don't all hammer the `_job_executor` (which
+    caps at SCHEDULER_CONCURRENCY=2) simultaneously. With a short `max_fff`
+    each map finishes quickly within the next stagger window, so the queue
+    drains as fast as the workers can handle.
     """
+    import threading
+
     from ..core.pipeline_adapter import get_map_specs
     specs = get_map_specs()
     rid = _validate_run_id_or_400(run_id)
-    for mt in specs:
-        background_tasks.add_task(trigger_job, mt, max_fff, rid)
+    map_types = list(specs.keys())
+
+    def _staggered_submit():
+        for i, mt in enumerate(map_types):
+            if i > 0 and stagger_seconds > 0:
+                # threading.Event.wait is interruptible (vs time.sleep) — keeps
+                # the worker thread responsive if FastAPI shuts down mid-stagger.
+                threading.Event().wait(stagger_seconds)
+            try:
+                trigger_job(mt, max_fff, rid)
+            except Exception as exc:
+                log.exception(
+                    "trigger_job failed during staggered submit for %s: %s",
+                    mt, exc,
+                )
+
+    background_tasks.add_task(_staggered_submit)
+
     return {
         "queued": True,
-        "map_types": list(specs.keys()),
+        "map_types": map_types,
         "max_fff": max_fff,
         "run_id": rid,
+        "stagger_seconds": stagger_seconds,
         "note": (
-            "Same pipeline as auto. Concurrency cap applies — maps will run "
-            "in batches of SCHEDULER_CONCURRENCY (default 2)."
+            f"Same pipeline as auto. Submits staggered by {stagger_seconds}s. "
+            f"Concurrency cap (SCHEDULER_CONCURRENCY, default 2) still applies."
         ),
     }
 
@@ -1854,3 +1886,376 @@ async def admin_stream(request: Request):
         },
     )
 
+
+# ---------------------------------------------------------------------------
+# Diagnostics — health snapshot + ZIP bundle export for offline review
+# ---------------------------------------------------------------------------
+
+def _collect_diagnostics(probe_noaa: bool = True) -> dict:
+    """Health snapshot of all subsystems. Pure function; safe to call from
+    /diagnostics and /diagnostics/export without re-entering FastAPI."""
+    import time as _time
+    from datetime import datetime, timezone, timedelta
+    from ..config import get_settings
+
+    cfg = get_settings()
+    checks: dict[str, dict] = {}
+    now = datetime.now(tz=timezone.utc)
+
+    # 1. DB connectivity
+    try:
+        from ..core.db import get_cycle_metrics_between
+        recent_24h = get_cycle_metrics_between(
+            (now - timedelta(hours=24)).isoformat(),
+            now.isoformat(),
+        )
+        checks["db"] = {"ok": True, "cycle_metrics_last_24h": len(recent_24h)}
+    except Exception as exc:
+        checks["db"] = {"ok": False, "error": str(exc)}
+
+    # 2. Scheduler
+    try:
+        from ..services.scheduler_service import get_scheduler_info
+        info = get_scheduler_info()
+        checks["scheduler"] = {
+            "ok": bool(info.get("running")),
+            "enabled": info.get("enabled"),
+            "running": info.get("running"),
+            "active_slots": info.get("active_slots"),
+            "queued_jobs": info.get("queued_jobs"),
+            "next_fires": {
+                j.get("id", j.get("name", "?")): j.get("next_run")
+                for j in info.get("jobs", [])
+            },
+        }
+    except Exception as exc:
+        checks["scheduler"] = {"ok": False, "error": str(exc)}
+
+    # 3. Pipeline orchestrator
+    try:
+        from ..services.pipeline_orchestrator import get_orchestrator
+        orch = get_orchestrator()
+        checks["orchestrator"] = {
+            "ok": bool(orch.is_running),
+            "is_running": bool(orch.is_running),
+            "active_runs": sorted(list(orch.active_runs)),
+            "publishing_runs": sorted(list(orch.publishing_runs)),
+        }
+    except Exception as exc:
+        checks["orchestrator"] = {"ok": False, "error": str(exc)}
+
+    # 4. Resources (disk / RAM / CPU / IOWait)
+    try:
+        from ..services.resource_guard import get_resource_metrics
+        m = get_resource_metrics()
+        ok = (
+            m.get("disk_free_gb", 0) >= cfg.MIN_DISK_FREE_GB
+            and m.get("ram_percent", 0) <= cfg.MAX_RAM_PERCENT
+        )
+        checks["resources"] = {"ok": ok, **m}
+    except Exception as exc:
+        checks["resources"] = {"ok": False, "error": str(exc)}
+
+    # 5. Last cycle health
+    try:
+        from ..core.db import get_cycle_metrics_between
+        last_48h = get_cycle_metrics_between(
+            (now - timedelta(hours=48)).isoformat(),
+            now.isoformat(),
+        )
+        if last_48h:
+            last_run_id = max(
+                (r.get("run_id", "") for r in last_48h if r.get("run_id")),
+                default="",
+            )
+            same_run = [r for r in last_48h if r.get("run_id") == last_run_id]
+            finished = sum(1 for r in same_run if r.get("finished_at"))
+            pointer_ok = all(r.get("pointer_switch_ok") for r in same_run)
+            age_hours: float | None = None
+            try:
+                from ..services.availability_service import parse_run_id
+                d, h = parse_run_id(last_run_id)
+                from datetime import datetime as _dt
+                run_dt = _dt(d.year, d.month, d.day, h, tzinfo=timezone.utc)
+                age_hours = round((now - run_dt).total_seconds() / 3600, 1)
+            except Exception:
+                pass
+            checks["last_cycle"] = {
+                "ok": (
+                    finished >= 5
+                    and pointer_ok
+                    and (age_hours is None or age_hours <= 8)
+                ),
+                "run_id": last_run_id,
+                "finished_maps": finished,
+                "total_maps_in_run": len(same_run),
+                "age_hours": age_hours,
+                "pointer_switch_ok": pointer_ok,
+            }
+        else:
+            checks["last_cycle"] = {"ok": False, "error": "No cycle in last 48h"}
+    except Exception as exc:
+        checks["last_cycle"] = {"ok": False, "error": str(exc)}
+
+    # 6. Bunny CDN pointer
+    if cfg.BUNNY_ENABLED:
+        try:
+            from ..services.bunny_storage import get_bunny_client
+            bunny = get_bunny_client()
+            ptr = bunny.read_pointer("rain_basic")
+            checks["bunny"] = {
+                "ok": ptr is not None,
+                "enabled": True,
+                "sample_map": "rain_basic",
+                "current_run": (ptr or {}).get("current_run"),
+                "previous_run": (ptr or {}).get("previous_run"),
+            }
+        except Exception as exc:
+            checks["bunny"] = {"ok": False, "enabled": True, "error": str(exc)}
+    else:
+        checks["bunny"] = {"ok": True, "enabled": False, "note": "Bunny disabled by config"}
+
+    # 7. NOAA reachability (HEAD request, ~5s timeout) — optional
+    if probe_noaa:
+        try:
+            import urllib.request
+            t0 = _time.perf_counter()
+            req = urllib.request.Request(
+                "https://nomads.ncep.noaa.gov/pub/data/nccf/com/gfs/prod/",
+                method="HEAD",
+            )
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                status = resp.status
+            latency_ms = int((_time.perf_counter() - t0) * 1000)
+            checks["noaa_probe"] = {
+                "ok": status < 500,
+                "reachable": True,
+                "latency_ms": latency_ms,
+                "status": status,
+            }
+        except Exception as exc:
+            checks["noaa_probe"] = {"ok": False, "reachable": False, "error": str(exc)}
+
+    overall_ok = all(c.get("ok", False) for c in checks.values())
+    return {
+        "ok": overall_ok,
+        "checks": checks,
+        "generated_at": now.isoformat(),
+    }
+
+
+@router.get("/diagnostics")
+def diagnostics(probe_noaa: bool = Query(default=True)) -> dict:
+    """Snapshot health check of all auto-pipeline subsystems.
+
+    Pass `probe_noaa=false` to skip the 5s HTTP probe (useful for fast polling).
+    Top-level `ok` is true only when every subsystem check is healthy.
+    """
+    return _collect_diagnostics(probe_noaa=probe_noaa)
+
+
+def _redact_config(cfg) -> dict:
+    """Return cfg's instance attributes with secret-looking values masked."""
+    SECRET_SUBSTRS = ("token", "key", "password", "secret")
+    out: dict = {}
+    for name, val in vars(cfg).items():
+        if name.startswith("_"):
+            continue
+        name_lower = name.lower()
+        if isinstance(val, str) and val and any(s in name_lower for s in SECRET_SUBSTRS):
+            out[name] = _mask(val)
+            continue
+        # Coerce non-JSON-native values
+        if hasattr(val, "__fspath__"):
+            out[name] = str(val)
+        elif isinstance(val, (set, frozenset)):
+            out[name] = sorted(val)
+        else:
+            out[name] = val
+    return out
+
+
+def _build_readme(now_iso: str, mode: str, date_or_days: str) -> str:
+    coverage = (
+        f"Single day: {date_or_days} (UTC)"
+        if mode == "date"
+        else f"Last {date_or_days} day(s)"
+    )
+    return (
+        "NOAA BE Diagnostic Bundle\n"
+        "=========================\n\n"
+        f"Generated at: {now_iso}\n"
+        f"Coverage:     {coverage}\n\n"
+        "Files in this bundle\n"
+        "--------------------\n"
+        "  README.txt                  — this file\n"
+        "  current_state.json          — health snapshot at export time (7 subsystem checks)\n"
+        "  app.log                     — text logs (capped 50 MB)\n"
+        "  events.jsonl                — structured JSON-per-line logs (capped 50 MB)\n"
+        "  cycle_metrics.json          — DB dump: per-(map,cycle) metrics for the coverage window\n"
+        "  pipeline_jobs_recent.json   — pipeline_jobs rows for the coverage window (up to 500)\n"
+        "  config_redacted.json        — non-secret config values (API keys/tokens masked)\n\n"
+        "How to use\n"
+        "----------\n"
+        "  1. Open current_state.json — look for ok=false in any check\n"
+        "  2. Search events.jsonl for ERROR/WARNING around the timeframe of interest\n"
+        "  3. Cross-reference cycle_metrics.json for failed run/map\n"
+        "  4. Send this entire ZIP to Claude (or support) for analysis\n"
+    )
+
+
+@router.get("/diagnostics/log-dates")
+def diagnostics_log_dates() -> dict:
+    """List the UTC dates for which logs exist on disk (today + rotated days)."""
+    try:
+        from ..services.log_files import list_available_dates
+        return {"dates": list_available_dates()}
+    except Exception as exc:
+        return {"dates": [], "error": str(exc)}
+
+
+@router.get("/diagnostics/export")
+def diagnostics_export(
+    days: int = Query(default=7, ge=1, le=7,
+                      description="Aggregate mode: include last N days of logs/metrics."),
+    date: Optional[str] = Query(
+        default=None,
+        pattern=r"^\d{4}-\d{2}-\d{2}$",
+        description="Single-day mode: 'YYYY-MM-DD' (UTC). Overrides `days` when set.",
+    ),
+    include_app_log: bool = Query(default=True),
+    include_events: bool = Query(default=True),
+):
+    """Download a ZIP bundle: logs + cycle metrics + current health snapshot.
+
+    Two modes (mutually exclusive — `date` takes precedence if both are passed):
+      - `days=N` (default 7) — aggregate logs/metrics for the last N days.
+      - `date=YYYY-MM-DD`    — only that single UTC date (smaller, focused bundle).
+
+    Secrets (API keys, tokens) are always masked.
+    """
+    import io
+    import json as _json
+    import sqlite3
+    import zipfile
+    from datetime import datetime, timezone, timedelta
+    from ..config import get_settings
+
+    cfg = get_settings()
+    now = datetime.now(tz=timezone.utc)
+
+    # Determine coverage window
+    if date:
+        # Single-day mode — strict UTC day boundaries
+        try:
+            day_start = datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid date: {date}")
+        day_end = day_start + timedelta(days=1)
+        coverage_start_iso = day_start.isoformat()
+        coverage_end_iso = day_end.isoformat()
+        mode = "date"
+        mode_label = date
+        filename = f"noaa_be_diag_{date.replace('-', '')}.zip"
+    else:
+        coverage_start_iso = (now - timedelta(days=days)).isoformat()
+        coverage_end_iso = now.isoformat()
+        mode = "days"
+        mode_label = str(days)
+        filename = f"noaa_be_diag_{now.strftime('%Y%m%d_%H%M%S')}.zip"
+
+    # Per-file caps (combined ~100MB worst case for ZIP-deflated text)
+    MAX_LOG_BYTES = 50 * 1024 * 1024
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
+        # 1. README
+        zf.writestr("README.txt", _build_readme(now.isoformat(), mode, mode_label))
+
+        # 2. Current state snapshot (skip NOAA probe to keep it fast)
+        try:
+            state = _collect_diagnostics(probe_noaa=False)
+            zf.writestr("current_state.json",
+                        _json.dumps(state, indent=2, ensure_ascii=False, default=str))
+        except Exception as exc:
+            zf.writestr("current_state.json",
+                        _json.dumps({"error": str(exc)}, indent=2))
+
+        # 3. app.log
+        if include_app_log:
+            try:
+                if mode == "date":
+                    from ..services.log_files import collect_log_text_for_date
+                    data = collect_log_text_for_date("app.log", date, max_bytes=MAX_LOG_BYTES)
+                else:
+                    from ..services.log_files import collect_log_text
+                    data = collect_log_text("app.log", max_bytes=MAX_LOG_BYTES)
+                zf.writestr("app.log", data if data else b"(no logs collected)")
+            except Exception as exc:
+                zf.writestr("app.log", f"(failed to collect: {exc})".encode("utf-8"))
+
+        # 4. events.jsonl
+        if include_events:
+            try:
+                if mode == "date":
+                    from ..services.log_files import collect_log_text_for_date
+                    data = collect_log_text_for_date("events.jsonl", date, max_bytes=MAX_LOG_BYTES)
+                else:
+                    from ..services.log_files import collect_log_text
+                    data = collect_log_text("events.jsonl", max_bytes=MAX_LOG_BYTES)
+                zf.writestr("events.jsonl", data if data else b"(no events collected)")
+            except Exception as exc:
+                zf.writestr("events.jsonl", f"(failed to collect: {exc})".encode("utf-8"))
+
+        # 5. cycle_metrics.json — filtered to coverage window
+        try:
+            from ..core.db import get_cycle_metrics_between
+            cycles = get_cycle_metrics_between(coverage_start_iso, coverage_end_iso)
+            zf.writestr("cycle_metrics.json",
+                        _json.dumps(cycles, indent=2, ensure_ascii=False, default=str))
+        except Exception as exc:
+            zf.writestr("cycle_metrics.json",
+                        _json.dumps({"error": str(exc)}, indent=2))
+
+        # 6. pipeline_jobs — filtered to coverage window by updated_at (unix ts)
+        try:
+            if mode == "date":
+                ts_start = day_start.timestamp()
+                ts_end = day_end.timestamp()
+            else:
+                ts_start = (now - timedelta(days=days)).timestamp()
+                ts_end = now.timestamp()
+            conn = sqlite3.connect(str(cfg.SHARED_DB_PATH))
+            conn.row_factory = sqlite3.Row
+            cur = conn.execute(
+                "SELECT id, map_type, run_id, fff, product, state, updated_at, error "
+                "FROM pipeline_jobs "
+                "WHERE updated_at >= ? AND updated_at < ? "
+                "ORDER BY updated_at DESC LIMIT 500",
+                (ts_start, ts_end),
+            )
+            rows = [dict(r) for r in cur.fetchall()]
+            conn.close()
+            zf.writestr("pipeline_jobs_recent.json",
+                        _json.dumps(rows, indent=2, ensure_ascii=False, default=str))
+        except Exception as exc:
+            zf.writestr("pipeline_jobs_recent.json",
+                        _json.dumps({"error": str(exc)}, indent=2))
+
+        # 7. config_redacted.json
+        try:
+            redacted = _redact_config(cfg)
+            zf.writestr("config_redacted.json",
+                        _json.dumps(redacted, indent=2, ensure_ascii=False, default=str))
+        except Exception as exc:
+            zf.writestr("config_redacted.json",
+                        _json.dumps({"error": str(exc)}, indent=2))
+
+    buf.seek(0)
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+        },
+    )

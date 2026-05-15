@@ -1,0 +1,60 @@
+# Keep image small — exclude everything the runtime container doesn't need.
+
+# Local data (will be volume-mounted instead)
+database/
+logs/
+**/database/
+**/logs/
+**/_smoke_logs/
+
+# Frontend / non-backend code
+frontend/
+fe/
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.mp4
+*.zip
+
+# Python cruft
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+
+# Git / CI
+.git/
+.github/
+.gitignore
+
+# Secrets — must NEVER be baked into image. Mount via env_file at runtime.
+**/.env
+**/.env.local
+**/.env.*.local
+!**/.env.example
+
+# Docs / README (optional — uncomment if you want them inside the image)
+# *.md
+# docs/
+
+# Tests (uncomment if image only needs to RUN, not test)
+# noaa_be/tests/
+
+# Plans / docs
+PLAN.md
+plan/

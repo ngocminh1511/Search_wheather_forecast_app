@@ -165,16 +165,21 @@ class PipelineOrchestrator:
     # Submit a run (called from a non-async thread via tile_generator)
     # ------------------------------------------------------------------
 
-    def submit_run(self, map_type: str, run_id: str, fff_values: List[int]):
+    def submit_run(self, map_type: str, run_id: str, fff_values: List[int]) -> bool:
         """Enqueue jobs for all (fff, product) combinations in this run.
 
         Skip check is REAL: we count actual PNG files on disk (staging + live).
         Only jobs with < MIN_TILES_THRESHOLD files get queued for generation.
+
+        Returns:
+            True  — jobs were enqueued (or scheduled via the asyncio loop).
+            False — `run_key` was already in `active_runs`; nothing pushed.
+                    Caller MUST handle this (don't poll DB forever).
         """
         run_key = f"{map_type}_{run_id}"
         if run_key in self.active_runs:
             log.warning("Run %s is already active — ignoring duplicate submit.", run_key)
-            return
+            return False
 
         self.active_runs.add(run_key)
 
@@ -216,6 +221,7 @@ class PipelineOrchestrator:
             self.loop.call_soon_threadsafe(_push_jobs)
         else:
             _push_jobs()
+        return True
 
     # ------------------------------------------------------------------
     # Resource guard helper
@@ -377,12 +383,14 @@ class PipelineOrchestrator:
                 upsert_pipeline_job(
                     job["id"], job["map_type"], job["run_id"], job["fff"], job["product"], "CANCELLED"
                 )
+                await self._check_run_completion(job["map_type"], job["run_id"])
             except Exception as e:
                 log.error("Parse failed for %s: %s", job["id"], e)
                 upsert_pipeline_job(
                     job["id"], job["map_type"], job["run_id"], job["fff"], job["product"], "ERROR", str(e)
                 )
                 self._rebuild_pool_if_broken("parse", e)
+                await self._check_run_completion(job["map_type"], job["run_id"])
             finally:
                 self.parse_queue.task_done()
 
@@ -423,12 +431,14 @@ class PipelineOrchestrator:
                 upsert_pipeline_job(
                     job["id"], job["map_type"], job["run_id"], job["fff"], job["product"], "CANCELLED"
                 )
+                await self._check_run_completion(job["map_type"], job["run_id"])
             except Exception as e:
                 log.error("Build failed for %s: %s", job["id"], e)
                 upsert_pipeline_job(
                     job["id"], job["map_type"], job["run_id"], job["fff"], job["product"], "ERROR", str(e)
                 )
                 self._rebuild_pool_if_broken("build", e)
+                await self._check_run_completion(job["map_type"], job["run_id"])
             finally:
                 self.build_queue.task_done()
 
@@ -527,12 +537,14 @@ class PipelineOrchestrator:
                 upsert_pipeline_job(
                     job["id"], job["map_type"], job["run_id"], job["fff"], job["product"], "CANCELLED"
                 )
+                await self._check_run_completion(job["map_type"], job["run_id"])
             except Exception as e:
                 log.error("Cut failed for %s: %s", job["id"], e)
                 upsert_pipeline_job(
                     job["id"], job["map_type"], job["run_id"], job["fff"], job["product"], "ERROR", str(e)
                 )
                 self._rebuild_pool_if_broken("cut", e)
+                await self._check_run_completion(job["map_type"], job["run_id"])
             finally:
                 if npy_path:
                     # On Windows, a child process may still hold the .npy
@@ -563,6 +575,7 @@ class PipelineOrchestrator:
 
     async def _publish_worker(self):
         import time as _time
+        loop = asyncio.get_running_loop()
         while self.is_running:
             try:
                 prio, j_id, run_info = await self.publish_queue.get()
@@ -575,7 +588,10 @@ class PipelineOrchestrator:
                 log.info("Publishing %s/%s to LIVE", map_type, run_id)
 
                 from .pipeline_tasks import publish_staging_to_live
-                publish_staging_to_live(map_type, run_id)
+                # publish_staging_to_live does blocking I/O (shutil.rmtree /
+                # file copies) — run in executor so the event loop stays live
+                # for parse/build/cut workers during publish.
+                await loop.run_in_executor(None, publish_staging_to_live, map_type, run_id)
 
                 # Mark published ONLY after success — keeps a TTL so the same
                 # run isn't re-queued in quick succession, but a failed run

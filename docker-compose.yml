@@ -1,0 +1,78 @@
+# NOAA Weather Backend — production docker-compose
+#
+# Usage:
+#   1. cp noaa_be/.env.example noaa_be/.env  &&  edit values
+#   2. docker compose up -d --build
+#   3. docker compose logs -f noaa_be
+#
+# Persistent state is in named volumes (./database, ./logs) — survive container
+# rebuild but NOT host wipe. Take regular backups of ./database if running
+# without Bunny (Bunny IS the canonical store when BUNNY_ENABLED=1).
+
+services:
+  noaa_be:
+    build:
+      context: .
+      dockerfile: noaa_be/Dockerfile
+    image: noaa_be:latest
+    container_name: noaa_be
+    restart: unless-stopped
+
+    # All config comes from .env — keep secrets out of compose file.
+    env_file:
+      - noaa_be/.env
+
+    # Override defaults that must match container paths (not host).
+    environment:
+      NOAA_BASE_DIR: /app
+      NOAA_DB_DIR: /app/database
+      LOG_DIR: /app/logs
+      HOST: 0.0.0.0
+      # PORT is fixed at 8001 inside container (Dockerfile EXPOSE).
+      TZ: UTC
+
+    ports:
+      # Host:container — change left side if 8001 conflicts on host.
+      - "8001:8001"
+
+    volumes:
+      # SQLite + GRIB data + tiles staging + json_grids + available
+      - ./database:/app/database
+      # Persistent rotating logs (7 days). Mount so you can `tail -f` from host
+      # and `docker compose down` doesn't lose history.
+      - ./logs:/app/logs
+
+    # Resource limits — tune for your server. Defaults assume a modest VPS.
+    # Worker pools (MAX_PARSE/BUILD/CUT_WORKERS) should sum to ≤ cpus*1.5.
+    deploy:
+      resources:
+        limits:
+          # Hard cap; container killed if exceeded.
+          memory: 6G
+        reservations:
+          memory: 2G
+
+    # Map filesystem / network behavior to host hardware.
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+
+    # Send container logs to host journal with rotation so docker logs doesn't
+    # eat all disk. (Application logs already rotate via LOG_RETENTION_DAYS
+    # inside /app/logs — this is separate stdout/stderr.)
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+    healthcheck:
+      # Same as Dockerfile HEALTHCHECK (kept here so compose status shows it).
+      test:
+        - CMD-SHELL
+        - 'curl -fsS -H "X-Admin-Token: ${ADMIN_API_TOKEN:-}" "http://localhost:8001/api/v1/admin/diagnostics?probe_noaa=false" > /dev/null || exit 1'
+      interval: 60s
+      timeout: 10s
+      start_period: 60s
+      retries: 3

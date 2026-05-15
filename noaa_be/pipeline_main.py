@@ -15,11 +15,23 @@ from app.services.scheduler_service import (
 import logging
 from app.services.log_buffer import install_handler as _install_log_buffer
 
+_cfg_boot = get_settings()
 logging.basicConfig(
-    level=logging.INFO,
+    level=getattr(logging, _cfg_boot.LOG_LEVEL, logging.INFO),
     format="%(asctime)s %(levelname)-8s %(name)s — %(message)s",
 )
 _install_log_buffer()
+
+if _cfg_boot.LOG_FILE_ENABLED:
+    try:
+        from app.services.log_files import install_file_handlers
+        install_file_handlers(
+            _cfg_boot.LOG_DIR,
+            retention_days=_cfg_boot.LOG_RETENTION_DAYS,
+            level=getattr(logging, _cfg_boot.LOG_LEVEL, logging.INFO),
+        )
+    except Exception as _exc:
+        logging.warning("Failed to install file log handlers (non-fatal): %s", _exc)
 
 def _warmup_eccodes() -> None:
     try:

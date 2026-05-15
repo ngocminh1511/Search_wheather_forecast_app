@@ -257,51 +257,95 @@ def generate_run(
     orchestrator = get_orchestrator()
     
     def submit_and_wait():
-        orchestrator.submit_run(map_type, run_id, effective_fffs)
-        
+        run_key = f"{map_type}_{run_id}"
+        submitted = orchestrator.submit_run(map_type, run_id, effective_fffs)
+
         # Poll DB for completion
         from ..core.db import get_pipeline_jobs_by_run, check_cancel_requested, JobCancelledError
-        
+
+        # Timeouts protect the worker thread from spinning forever if the
+        # orchestrator leaks active_runs or never pushes jobs (e.g. duplicate
+        # submit, loop crash, BrokenProcessPool). Without these, the parent
+        # `_job_executor` worker slot never frees → queued maps never start.
+        NO_JOBS_TIMEOUT_S = 30
+        PUBLISH_TIMEOUT_S = 1800  # 30 min — accommodates a slow Bunny upload
+
+        if not submitted:
+            # submit_run reported a duplicate active run. Wait briefly for the
+            # in-flight run to finish; if jobs never reach a terminal state we
+            # force-release the leaked slot and raise instead of polling forever.
+            log.warning(
+                "submit_run reported duplicate active run for %s — waiting briefly "
+                "then bailing if state is stale.",
+                run_key,
+            )
+
         frames_done = 0
-        total_tiles_saved = 0
-        total_tiles_skipped = 0
         total_errors = 0
-        
+        no_jobs_since = time.monotonic()
+
         while True:
             time.sleep(1.0)
             if check_cancel_requested(map_type):
                 raise JobCancelledError("Job cancelled by user.")
-                
+
             jobs = get_pipeline_jobs_by_run(map_type, run_id)
             if not jobs:
+                if time.monotonic() - no_jobs_since > NO_JOBS_TIMEOUT_S:
+                    # No jobs ever appeared — almost certainly an active_runs
+                    # leak from a previous run. Force-release so the next
+                    # attempt isn't blocked, then bubble up so this worker
+                    # frees its _job_executor slot.
+                    orchestrator.active_runs.discard(run_key)
+                    raise RuntimeError(
+                        f"No pipeline jobs for {map_type}/{run_id} after "
+                        f"{NO_JOBS_TIMEOUT_S}s (likely active_runs leak — "
+                        f"slot force-released)."
+                    )
                 continue
-                
+
+            no_jobs_since = time.monotonic()
             done_count = 0
             err_count = 0
-            
+
             for j in jobs:
                 if j['state'] in ("READY", "SKIPPED", "ERROR", "CANCELLED"):
                     done_count += 1
                 if j['state'] == "ERROR":
                     err_count += 1
                     total_errors += 1
-                    
+
             frames_done = done_count
-            
+
             if _pt:
                 _pt.update(
                     map_type,
                     frames_done=frames_done,
                     step_detail=f"Pipeline Processing: {frames_done}/{len(jobs)} jobs done…",
                 )
-                
+
             if done_count == len(jobs):
                 if err_count > 0:
                     raise RuntimeError(f"Found {err_count} pipeline errors for {map_type}/{run_id}.")
                 break
-                
-        # Wait for publish worker to clear active_runs
-        while f"{map_type}_{run_id}" in orchestrator.active_runs:
+
+        # Wait for publish worker to clear active_runs, with timeout so a
+        # stuck publish doesn't permanently strand the _job_executor slot.
+        publish_deadline = time.monotonic() + PUBLISH_TIMEOUT_S
+        while run_key in orchestrator.active_runs:
+            if time.monotonic() > publish_deadline:
+                orchestrator.active_runs.discard(run_key)
+                orchestrator.publishing_runs.discard(run_key)
+                log.error(
+                    "Publish timeout %.0fs for %s — slot force-released",
+                    PUBLISH_TIMEOUT_S, run_key,
+                )
+                raise RuntimeError(
+                    f"Publish for {map_type}/{run_id} did not complete in "
+                    f"{PUBLISH_TIMEOUT_S}s — slot force-released."
+                )
+            if check_cancel_requested(map_type):
+                raise JobCancelledError("Job cancelled by user while awaiting publish.")
             time.sleep(0.5)
 
     try:

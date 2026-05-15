@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem -Path \"e:\\\\DOAN\\\\Search_wheather_forecast_app\\\\noaa_be\" -Recurse -Directory)",
+      "Bash(Select-Object -First 20)",
+      "Bash(Format-Table FullName)",
+      "Bash(Select-Object -ExpandProperty FullName)",
+      "Bash(Sort-Object)",
+      "Bash(xargs grep -l \"health\\\\|Health\\\\|/health\\\\|@router.get\")",
+      "Bash(grep -r \"log\\\\\\\\.info\\\\|log\\\\\\\\.warning\\\\|log\\\\\\\\.error\" \"e:/DOAN/Search_wheather_forecast_app/noaa_be/app/services/pipeline_orchestrator.py\")",
+      "Bash(grep -n \"log\\\\\\\\.info\\\\|log\\\\\\\\.error\\\\|log\\\\\\\\.warning\" \"e:/DOAN/Search_wheather_forecast_app/noaa_be/app/services/pipeline_tasks.py\")",
+      "Bash(python -m py_compile noaa_be/app/services/pipeline_orchestrator.py)",
+      "Bash(python -m py_compile noaa_be/app/services/scheduler_service.py)",
+      "Bash(python -m py_compile noaa_be/app/services/log_files.py)",
+      "Bash(python -m py_compile noaa_be/app/config.py)",
+      "Bash(python -m py_compile noaa_be/pipeline_main.py)",
+      "Bash(python -m py_compile noaa_be/app/routers/admin.py)",
+      "Bash(cd \"/e/DOAN/Search_wheather_forecast_app/noaa_be\" && rm -rf _smoke_logs && echo \"cleaned\")",
+      "Bash(Get-ChildItem -Path \"e:\\\\DOAN\\\\Search_wheather_forecast_app\\\\noaa_be\\\\app\\\\services\\\\\" -Name)"
+    ],
+    "additionalDirectories": [
+      "e:\\e\\DOAN\\Search_wheather_forecast_app\\noaa_be"
+    ]
+  }
+}

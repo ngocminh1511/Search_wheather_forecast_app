@@ -26,8 +26,10 @@ All operations are idempotent (missing_ok / ignore_errors=True).
 
 import json
 import logging
+import os
 import re
 import shutil
+import subprocess
 import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -50,6 +52,20 @@ MAX_CONCURRENT_BATCHES_PER_MAP = 8
 DELETE_JOBS: dict[str, "DeleteJob"] = {}
 _LOCKED_MAP_TYPES: set[str] = set()
 _state_lock = threading.Lock()
+
+# Per-run_id locks guarding read-modify-write of master availability JSON,
+# which can be touched concurrently by _delete_run threads across map_types.
+_master_avail_locks: dict[str, threading.Lock] = {}
+_master_avail_locks_guard = threading.Lock()
+
+
+def _master_avail_lock(run_id: str) -> threading.Lock:
+    with _master_avail_locks_guard:
+        lock = _master_avail_locks.get(run_id)
+        if lock is None:
+            lock = threading.Lock()
+            _master_avail_locks[run_id] = lock
+        return lock
 
 
 # ---------------------------------------------------------------------------
@@ -188,7 +204,7 @@ def _delete_map_type(job: DeleteJob, map_type: str, cfg: Any) -> None:
     prog = job.progress[map_type]
     prog["status"] = "running"
 
-    run_ids = job.run_ids or _discover_run_ids(map_type, cfg)
+    run_ids = _discover_run_ids(map_type, cfg) if job.run_ids is None else job.run_ids
     prog["runs_total"] = len(run_ids)
     log.info("Deleting map_type=%s (%d run(s))", map_type, len(run_ids))
 
@@ -264,11 +280,7 @@ def _delete_run(map_type: str, run_id: str, cfg: Any) -> None:
             bunny = get_bunny_client()
             if bunny is not None:
                 ptr = bunny.read_pointer(map_type)
-                pointer_targeted_this_run = bool(
-                    ptr and ptr.get("current_run") == run_id
-                )
-
-                if pointer_targeted_this_run:
+                if ptr is not None and ptr.get("current_run") == run_id:
                     prev = ptr.get("previous_run")
                     if prev:
                         # Fall back to previous run for frontend continuity
@@ -315,9 +327,6 @@ def _delete_run(map_type: str, run_id: str, cfg: Any) -> None:
 # Filesystem helpers
 # ---------------------------------------------------------------------------
 
-import os
-import subprocess
-
 def _rm(path: Path) -> None:
     """Remove a directory tree, using fast OS commands on Windows."""
     if not path.exists():
@@ -353,24 +362,34 @@ def _rm(path: Path) -> None:
 
 def _prune_master_availability(run_id: str, deleted_map_type: str, cfg: Any) -> None:
     """Remove deleted_map_type from master availability JSON.
-    Deletes the file entirely if no map types remain."""
+    Deletes the file entirely if no map types remain.
+
+    Serialized per run_id because concurrent _delete_run threads (one per
+    map_type) all target the same master file.
+    """
     master = cfg.AVAILABLE_DIR / f"availability_{run_id}.json"
-    if not master.exists():
-        return
-    try:
-        data = json.loads(master.read_text())
-        map_types = data.get("map_types", {})
-        if deleted_map_type not in map_types:
+    with _master_avail_lock(run_id):
+        if not master.exists():
             return
-        map_types.pop(deleted_map_type)
-        if not map_types:
-            master.unlink(missing_ok=True)
-        else:
-            data["map_types"] = map_types
-            master.write_text(json.dumps(data, indent=2))
-    except Exception as exc:
-        log.warning("_prune_master_availability %s/%s: %s",
-                    run_id, deleted_map_type, exc)
+        try:
+            data = json.loads(master.read_text())
+            map_types = data.get("map_types", {})
+            if deleted_map_type not in map_types:
+                return
+            map_types.pop(deleted_map_type)
+            if not map_types:
+                master.unlink(missing_ok=True)
+            else:
+                data["map_types"] = map_types
+                # Atomic write: temp file + os.replace
+                tmp = master.with_suffix(
+                    master.suffix + f".tmp.{uuid.uuid4().hex[:8]}"
+                )
+                tmp.write_text(json.dumps(data, indent=2))
+                os.replace(tmp, master)
+        except Exception as exc:
+            log.warning("_prune_master_availability %s/%s: %s",
+                        run_id, deleted_map_type, exc)
 
 
 # ---------------------------------------------------------------------------
