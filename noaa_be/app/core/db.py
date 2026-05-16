@@ -374,7 +374,7 @@ def clear_progress(map_type: str) -> None:
 
 # --- Pipeline Jobs ---
 
-def upsert_pipeline_job(job_id: str, map_type: str, run_id: str, fff: int, product: str, state: str, error: str = None) -> None:
+def upsert_pipeline_job(job_id: str, map_type: str, run_id: str, fff: int, product: str, state: str, error: str | None = None) -> None:
     import time
     with get_db_connection() as conn:
         conn.execute('''

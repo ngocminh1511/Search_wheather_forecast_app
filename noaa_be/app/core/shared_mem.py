@@ -1,9 +1,13 @@
 import logging
+from typing import Any
 import numpy as np
+
+shared_memory: Any
 try:
-    from multiprocessing import shared_memory
+    from multiprocessing import shared_memory  # type: ignore[no-redef]
     _HAS_SHM = True
 except ImportError:
+    shared_memory = None
     _HAS_SHM = False
 
 log = logging.getLogger(__name__)

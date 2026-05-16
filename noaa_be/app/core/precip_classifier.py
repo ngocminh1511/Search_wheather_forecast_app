@@ -66,7 +66,7 @@ def _remove_small_patches(mask: np.ndarray, min_size: int) -> np.ndarray:
     """Remove connected components smaller than min_size pixels."""
     if min_size <= 1 or not mask.any():
         return mask
-    labeled, n = label(mask)
+    labeled, n = label(mask)  # type: ignore[misc]
     if n == 0:
         return mask
     cleaned = np.zeros_like(mask, dtype=bool)

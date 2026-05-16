@@ -136,7 +136,7 @@ def test_no_duplicate_delete_jobs_route():
     from app.routers.admin import router
 
     paths = [
-        (route.path, tuple(sorted(route.methods)))
+        (getattr(route, "path", ""), tuple(sorted(getattr(route, "methods", []))))
         for route in router.routes
         if hasattr(route, "methods")
     ]

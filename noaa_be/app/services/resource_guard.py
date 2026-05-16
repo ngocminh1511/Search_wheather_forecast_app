@@ -1,12 +1,15 @@
 import os
 import shutil
 import logging
+from typing import Any
 from ..config import get_settings
 
+psutil: Any
 try:
-    import psutil
+    import psutil  # type: ignore[no-redef]
     _HAS_PSUTIL = True
 except ImportError:
+    psutil = None
     _HAS_PSUTIL = False
     logging.warning("psutil not installed. RAM/CPU guards will be degraded.")
 

@@ -1,0 +1,1390 @@
+{
+    "version": "1.1.409",
+    "time": "1778920761753",
+    "generalDiagnostics": [
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\benchmark.py",
+            "severity": "error",
+            "message": "\"psutil\" is possibly unbound",
+            "range": {
+                "start": {
+                    "line": 125,
+                    "character": 33
+                },
+                "end": {
+                    "line": 125,
+                    "character": 39
+                }
+            },
+            "rule": "reportPossiblyUnboundVariable"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\benchmark.py",
+            "severity": "error",
+            "message": "\"psutil\" is possibly unbound",
+            "range": {
+                "start": {
+                    "line": 130,
+                    "character": 22
+                },
+                "end": {
+                    "line": 130,
+                    "character": 28
+                }
+            },
+            "rule": "reportPossiblyUnboundVariable"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\benchmark.py",
+            "severity": "error",
+            "message": "\"psutil\" is possibly unbound",
+            "range": {
+                "start": {
+                    "line": 132,
+                    "character": 22
+                },
+                "end": {
+                    "line": 132,
+                    "character": 28
+                }
+            },
+            "rule": "reportPossiblyUnboundVariable"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\benchmark.py",
+            "severity": "error",
+            "message": "\"psutil\" is possibly unbound",
+            "range": {
+                "start": {
+                    "line": 136,
+                    "character": 28
+                },
+                "end": {
+                    "line": 136,
+                    "character": 34
+                }
+            },
+            "rule": "reportPossiblyUnboundVariable"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\benchmark.py",
+            "severity": "error",
+            "message": "\"psutil\" is possibly unbound",
+            "range": {
+                "start": {
+                    "line": 144,
+                    "character": 31
+                },
+                "end": {
+                    "line": 144,
+                    "character": 37
+                }
+            },
+            "rule": "reportPossiblyUnboundVariable"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\benchmark.py",
+            "severity": "error",
+            "message": "\"psutil\" is possibly unbound",
+            "range": {
+                "start": {
+                    "line": 154,
+                    "character": 12
+                },
+                "end": {
+                    "line": 154,
+                    "character": 18
+                }
+            },
+            "rule": "reportPossiblyUnboundVariable"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\benchmark.py",
+            "severity": "error",
+            "message": "\"psutil\" is possibly unbound",
+            "range": {
+                "start": {
+                    "line": 155,
+                    "character": 12
+                },
+                "end": {
+                    "line": 155,
+                    "character": 18
+                }
+            },
+            "rule": "reportPossiblyUnboundVariable"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\colormap.py",
+            "severity": "error",
+            "message": "Argument of type \"ArrayLike | ColorType\" cannot be assigned to parameter \"obj\" of type \"Sized\" in function \"len\"\n  Type \"ArrayLike | ColorType\" is not assignable to type \"Sized\"\n    \"_Buffer\" is incompatible with protocol \"Sized\"\n      \"__len__\" is not present",
+            "range": {
+                "start": {
+                    "line": 316,
+                    "character": 19
+                },
+                "end": {
+                    "line": 316,
+                    "character": 30
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\colormap.py",
+            "severity": "error",
+            "message": "Argument of type \"ArrayLike | ColorType\" cannot be assigned to parameter \"obj\" of type \"Sized\" in function \"len\"\n  Type \"ArrayLike | ColorType\" is not assignable to type \"Sized\"\n    \"_Buffer\" is incompatible with protocol \"Sized\"\n      \"__len__\" is not present",
+            "range": {
+                "start": {
+                    "line": 340,
+                    "character": 19
+                },
+                "end": {
+                    "line": 340,
+                    "character": 30
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\colormap.py",
+            "severity": "error",
+            "message": "\"__getitem__\" method not defined on type \"_Buffer\"",
+            "range": {
+                "start": {
+                    "line": 350,
+                    "character": 20
+                },
+                "end": {
+                    "line": 350,
+                    "character": 31
+                }
+            },
+            "rule": "reportIndexIssue"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\colormap.py",
+            "severity": "error",
+            "message": "\"__getitem__\" method not defined on type \"_SupportsArray[dtype[Any]]\"",
+            "range": {
+                "start": {
+                    "line": 350,
+                    "character": 20
+                },
+                "end": {
+                    "line": 350,
+                    "character": 31
+                }
+            },
+            "rule": "reportIndexIssue"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\colormap.py",
+            "severity": "error",
+            "message": "\"__getitem__\" method not defined on type \"complex\"",
+            "range": {
+                "start": {
+                    "line": 350,
+                    "character": 20
+                },
+                "end": {
+                    "line": 350,
+                    "character": 31
+                }
+            },
+            "rule": "reportIndexIssue"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\colormap.py",
+            "severity": "error",
+            "message": "\"__getitem__\" method not defined on type \"_SupportsArray[dtype[Any]]\"",
+            "range": {
+                "start": {
+                    "line": 355,
+                    "character": 34
+                },
+                "end": {
+                    "line": 355,
+                    "character": 39
+                }
+            },
+            "rule": "reportIndexIssue"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\colormap.py",
+            "severity": "error",
+            "message": "\"__getitem__\" method not defined on type \"int\"",
+            "range": {
+                "start": {
+                    "line": 355,
+                    "character": 34
+                },
+                "end": {
+                    "line": 355,
+                    "character": 39
+                }
+            },
+            "rule": "reportIndexIssue"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\colormap.py",
+            "severity": "error",
+            "message": "\"__getitem__\" method not defined on type \"complex\"",
+            "range": {
+                "start": {
+                    "line": 355,
+                    "character": 34
+                },
+                "end": {
+                    "line": 355,
+                    "character": 39
+                }
+            },
+            "rule": "reportIndexIssue"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\colormap.py",
+            "severity": "error",
+            "message": "\"__getitem__\" method not defined on type \"float\"",
+            "range": {
+                "start": {
+                    "line": 355,
+                    "character": 34
+                },
+                "end": {
+                    "line": 355,
+                    "character": 39
+                }
+            },
+            "rule": "reportIndexIssue"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\colormap.py",
+            "severity": "error",
+            "message": "Operator \"*\" not supported for types \"Unknown | _SupportsArray[dtype[Any]] | _NestedSequence[_SupportsArray[dtype[Any]]] | int | complex | bytes | str | _NestedSequence[complex | bytes | str] | float\" and \"Literal[255]\"\n  Operator \"*\" not supported for types \"_SupportsArray[dtype[Any]]\" and \"Literal[255]\" when expected type is \"ConvertibleToInt\"\n  Operator \"*\" not supported for types \"_NestedSequence[_SupportsArray[dtype[Any]]]\" and \"Literal[255]\" when expected type is \"ConvertibleToInt\"\n  Operator \"*\" not supported for types \"_NestedSequence[complex | bytes | str]\" and \"Literal[255]\" when expected type is \"ConvertibleToInt\"",
+            "range": {
+                "start": {
+                    "line": 355,
+                    "character": 34
+                },
+                "end": {
+                    "line": 355,
+                    "character": 46
+                }
+            },
+            "rule": "reportOperatorIssue"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\colormap.py",
+            "severity": "error",
+            "message": "Argument of type \"Unknown | int | complex | bytes | str | float\" cannot be assigned to parameter \"x\" of type \"ConvertibleToInt\" in function \"__new__\"\n  Type \"Unknown | int | complex | bytes | str | float\" is not assignable to type \"ConvertibleToInt\"\n    Type \"complex\" is not assignable to type \"ConvertibleToInt\"\n      \"complex\" is not assignable to \"str\"\n      \"complex\" is incompatible with protocol \"Buffer\"\n        \"__buffer__\" is not present\n      \"complex\" is incompatible with protocol \"SupportsInt\"\n        \"__int__\" is not present\n      \"complex\" is incompatible with protocol \"SupportsIndex\"\n  ...",
+            "range": {
+                "start": {
+                    "line": 355,
+                    "character": 34
+                },
+                "end": {
+                    "line": 355,
+                    "character": 46
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\colormap.py",
+            "severity": "error",
+            "message": "Argument of type \"Unknown | int | complex | bytes | str | float\" cannot be assigned to parameter \"x\" of type \"ConvertibleToInt\" in function \"__new__\"\n  Type \"Unknown | int | complex | bytes | str | float\" is not assignable to type \"ConvertibleToInt\"\n    Type \"complex\" is not assignable to type \"ConvertibleToInt\"\n      \"complex\" is not assignable to \"str\"\n      \"complex\" is incompatible with protocol \"Buffer\"\n        \"__buffer__\" is not present\n      \"complex\" is incompatible with protocol \"SupportsInt\"\n        \"__int__\" is not present\n      \"complex\" is incompatible with protocol \"SupportsIndex\"",
+            "range": {
+                "start": {
+                    "line": 355,
+                    "character": 34
+                },
+                "end": {
+                    "line": 355,
+                    "character": 46
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\colormap.py",
+            "severity": "error",
+            "message": "\"__getitem__\" method not defined on type \"_SupportsArray[dtype[Any]]\"",
+            "range": {
+                "start": {
+                    "line": 355,
+                    "character": 53
+                },
+                "end": {
+                    "line": 355,
+                    "character": 58
+                }
+            },
+            "rule": "reportIndexIssue"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\colormap.py",
+            "severity": "error",
+            "message": "\"__getitem__\" method not defined on type \"int\"",
+            "range": {
+                "start": {
+                    "line": 355,
+                    "character": 53
+                },
+                "end": {
+                    "line": 355,
+                    "character": 58
+                }
+            },
+            "rule": "reportIndexIssue"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\colormap.py",
+            "severity": "error",
+            "message": "\"__getitem__\" method not defined on type \"complex\"",
+            "range": {
+                "start": {
+                    "line": 355,
+                    "character": 53
+                },
+                "end": {
+                    "line": 355,
+                    "character": 58
+                }
+            },
+            "rule": "reportIndexIssue"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\colormap.py",
+            "severity": "error",
+            "message": "\"__getitem__\" method not defined on type \"float\"",
+            "range": {
+                "start": {
+                    "line": 355,
+                    "character": 53
+                },
+                "end": {
+                    "line": 355,
+                    "character": 58
+                }
+            },
+            "rule": "reportIndexIssue"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\colormap.py",
+            "severity": "error",
+            "message": "Operator \"*\" not supported for types \"Unknown | _SupportsArray[dtype[Any]] | _NestedSequence[_SupportsArray[dtype[Any]]] | int | complex | bytes | str | _NestedSequence[complex | bytes | str] | float\" and \"Literal[255]\"\n  Operator \"*\" not supported for types \"_SupportsArray[dtype[Any]]\" and \"Literal[255]\" when expected type is \"ConvertibleToInt\"\n  Operator \"*\" not supported for types \"_NestedSequence[_SupportsArray[dtype[Any]]]\" and \"Literal[255]\" when expected type is \"ConvertibleToInt\"\n  Operator \"*\" not supported for types \"_NestedSequence[complex | bytes | str]\" and \"Literal[255]\" when expected type is \"ConvertibleToInt\"",
+            "range": {
+                "start": {
+                    "line": 355,
+                    "character": 53
+                },
+                "end": {
+                    "line": 355,
+                    "character": 65
+                }
+            },
+            "rule": "reportOperatorIssue"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\colormap.py",
+            "severity": "error",
+            "message": "Argument of type \"Unknown | int | complex | bytes | str | float\" cannot be assigned to parameter \"x\" of type \"ConvertibleToInt\" in function \"__new__\"\n  Type \"Unknown | int | complex | bytes | str | float\" is not assignable to type \"ConvertibleToInt\"\n    Type \"complex\" is not assignable to type \"ConvertibleToInt\"\n      \"complex\" is not assignable to \"str\"\n      \"complex\" is incompatible with protocol \"Buffer\"\n        \"__buffer__\" is not present\n      \"complex\" is incompatible with protocol \"SupportsInt\"\n        \"__int__\" is not present\n      \"complex\" is incompatible with protocol \"SupportsIndex\"\n  ...",
+            "range": {
+                "start": {
+                    "line": 355,
+                    "character": 53
+                },
+                "end": {
+                    "line": 355,
+                    "character": 65
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\colormap.py",
+            "severity": "error",
+            "message": "Argument of type \"Unknown | int | complex | bytes | str | float\" cannot be assigned to parameter \"x\" of type \"ConvertibleToInt\" in function \"__new__\"\n  Type \"Unknown | int | complex | bytes | str | float\" is not assignable to type \"ConvertibleToInt\"\n    Type \"complex\" is not assignable to type \"ConvertibleToInt\"\n      \"complex\" is not assignable to \"str\"\n      \"complex\" is incompatible with protocol \"Buffer\"\n        \"__buffer__\" is not present\n      \"complex\" is incompatible with protocol \"SupportsInt\"\n        \"__int__\" is not present\n      \"complex\" is incompatible with protocol \"SupportsIndex\"",
+            "range": {
+                "start": {
+                    "line": 355,
+                    "character": 53
+                },
+                "end": {
+                    "line": 355,
+                    "character": 65
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\colormap.py",
+            "severity": "error",
+            "message": "\"__getitem__\" method not defined on type \"_SupportsArray[dtype[Any]]\"",
+            "range": {
+                "start": {
+                    "line": 355,
+                    "character": 72
+                },
+                "end": {
+                    "line": 355,
+                    "character": 77
+                }
+            },
+            "rule": "reportIndexIssue"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\colormap.py",
+            "severity": "error",
+            "message": "\"__getitem__\" method not defined on type \"int\"",
+            "range": {
+                "start": {
+                    "line": 355,
+                    "character": 72
+                },
+                "end": {
+                    "line": 355,
+                    "character": 77
+                }
+            },
+            "rule": "reportIndexIssue"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\colormap.py",
+            "severity": "error",
+            "message": "\"__getitem__\" method not defined on type \"complex\"",
+            "range": {
+                "start": {
+                    "line": 355,
+                    "character": 72
+                },
+                "end": {
+                    "line": 355,
+                    "character": 77
+                }
+            },
+            "rule": "reportIndexIssue"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\colormap.py",
+            "severity": "error",
+            "message": "\"__getitem__\" method not defined on type \"float\"",
+            "range": {
+                "start": {
+                    "line": 355,
+                    "character": 72
+                },
+                "end": {
+                    "line": 355,
+                    "character": 77
+                }
+            },
+            "rule": "reportIndexIssue"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\colormap.py",
+            "severity": "error",
+            "message": "Operator \"*\" not supported for types \"Unknown | _SupportsArray[dtype[Any]] | _NestedSequence[_SupportsArray[dtype[Any]]] | int | complex | bytes | str | _NestedSequence[complex | bytes | str] | float\" and \"Literal[255]\"\n  Operator \"*\" not supported for types \"_SupportsArray[dtype[Any]]\" and \"Literal[255]\" when expected type is \"ConvertibleToInt\"\n  Operator \"*\" not supported for types \"_NestedSequence[_SupportsArray[dtype[Any]]]\" and \"Literal[255]\" when expected type is \"ConvertibleToInt\"\n  Operator \"*\" not supported for types \"_NestedSequence[complex | bytes | str]\" and \"Literal[255]\" when expected type is \"ConvertibleToInt\"",
+            "range": {
+                "start": {
+                    "line": 355,
+                    "character": 72
+                },
+                "end": {
+                    "line": 355,
+                    "character": 84
+                }
+            },
+            "rule": "reportOperatorIssue"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\colormap.py",
+            "severity": "error",
+            "message": "Argument of type \"Unknown | int | complex | bytes | str | float\" cannot be assigned to parameter \"x\" of type \"ConvertibleToInt\" in function \"__new__\"\n  Type \"Unknown | int | complex | bytes | str | float\" is not assignable to type \"ConvertibleToInt\"\n    Type \"complex\" is not assignable to type \"ConvertibleToInt\"\n      \"complex\" is not assignable to \"str\"\n      \"complex\" is incompatible with protocol \"Buffer\"\n        \"__buffer__\" is not present\n      \"complex\" is incompatible with protocol \"SupportsInt\"\n        \"__int__\" is not present\n      \"complex\" is incompatible with protocol \"SupportsIndex\"\n  ...",
+            "range": {
+                "start": {
+                    "line": 355,
+                    "character": 72
+                },
+                "end": {
+                    "line": 355,
+                    "character": 84
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\colormap.py",
+            "severity": "error",
+            "message": "Argument of type \"Unknown | int | complex | bytes | str | float\" cannot be assigned to parameter \"x\" of type \"ConvertibleToInt\" in function \"__new__\"\n  Type \"Unknown | int | complex | bytes | str | float\" is not assignable to type \"ConvertibleToInt\"\n    Type \"complex\" is not assignable to type \"ConvertibleToInt\"\n      \"complex\" is not assignable to \"str\"\n      \"complex\" is incompatible with protocol \"Buffer\"\n        \"__buffer__\" is not present\n      \"complex\" is incompatible with protocol \"SupportsInt\"\n        \"__int__\" is not present\n      \"complex\" is incompatible with protocol \"SupportsIndex\"",
+            "range": {
+                "start": {
+                    "line": 355,
+                    "character": 72
+                },
+                "end": {
+                    "line": 355,
+                    "character": 84
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\colormap.py",
+            "severity": "error",
+            "message": "No overloads for \"clip\" match the provided arguments",
+            "range": {
+                "start": {
+                    "line": 446,
+                    "character": 16
+                },
+                "end": {
+                    "line": 446,
+                    "character": 51
+                }
+            },
+            "rule": "reportCallIssue"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\colormap.py",
+            "severity": "error",
+            "message": "Argument of type \"ndarray[_AnyShape, dtype[Any]] | None\" cannot be assigned to parameter \"a\" of type \"ArrayLike\" in function \"clip\"\n  Type \"ndarray[_AnyShape, dtype[Any]] | None\" is not assignable to type \"ArrayLike\"\n    Type \"None\" is not assignable to type \"ArrayLike\"\n      \"None\" is incompatible with protocol \"_Buffer\"\n        \"__buffer__\" is not present\n      \"None\" is incompatible with protocol \"_SupportsArray[dtype[Any]]\"\n        \"__array__\" is not present\n      \"None\" is incompatible with protocol \"_NestedSequence[_SupportsArray[dtype[Any]]]\"\n        \"__len__\" is not present\n  ...",
+            "range": {
+                "start": {
+                    "line": 446,
+                    "character": 24
+                },
+                "end": {
+                    "line": 446,
+                    "character": 31
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\colormap.py",
+            "severity": "error",
+            "message": "\"__getitem__\" method not defined on type \"_Buffer\"",
+            "range": {
+                "start": {
+                    "line": 554,
+                    "character": 62
+                },
+                "end": {
+                    "line": 554,
+                    "character": 73
+                }
+            },
+            "rule": "reportIndexIssue"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\colormap.py",
+            "severity": "error",
+            "message": "\"__getitem__\" method not defined on type \"_SupportsArray[dtype[Any]]\"",
+            "range": {
+                "start": {
+                    "line": 554,
+                    "character": 62
+                },
+                "end": {
+                    "line": 554,
+                    "character": 73
+                }
+            },
+            "rule": "reportIndexIssue"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\colormap.py",
+            "severity": "error",
+            "message": "\"__getitem__\" method not defined on type \"complex\"",
+            "range": {
+                "start": {
+                    "line": 554,
+                    "character": 62
+                },
+                "end": {
+                    "line": 554,
+                    "character": 73
+                }
+            },
+            "rule": "reportIndexIssue"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\colormap.py",
+            "severity": "error",
+            "message": "\"__getitem__\" method not defined on type \"_Buffer\"",
+            "range": {
+                "start": {
+                    "line": 558,
+                    "character": 67
+                },
+                "end": {
+                    "line": 558,
+                    "character": 78
+                }
+            },
+            "rule": "reportIndexIssue"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\colormap.py",
+            "severity": "error",
+            "message": "\"__getitem__\" method not defined on type \"_SupportsArray[dtype[Any]]\"",
+            "range": {
+                "start": {
+                    "line": 558,
+                    "character": 67
+                },
+                "end": {
+                    "line": 558,
+                    "character": 78
+                }
+            },
+            "rule": "reportIndexIssue"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\colormap.py",
+            "severity": "error",
+            "message": "\"__getitem__\" method not defined on type \"complex\"",
+            "range": {
+                "start": {
+                    "line": 558,
+                    "character": 67
+                },
+                "end": {
+                    "line": 558,
+                    "character": 78
+                }
+            },
+            "rule": "reportIndexIssue"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\colormap.py",
+            "severity": "error",
+            "message": "\"__getitem__\" method not defined on type \"_Buffer\"",
+            "range": {
+                "start": {
+                    "line": 562,
+                    "character": 67
+                },
+                "end": {
+                    "line": 562,
+                    "character": 78
+                }
+            },
+            "rule": "reportIndexIssue"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\colormap.py",
+            "severity": "error",
+            "message": "\"__getitem__\" method not defined on type \"_SupportsArray[dtype[Any]]\"",
+            "range": {
+                "start": {
+                    "line": 562,
+                    "character": 67
+                },
+                "end": {
+                    "line": 562,
+                    "character": 78
+                }
+            },
+            "rule": "reportIndexIssue"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\colormap.py",
+            "severity": "error",
+            "message": "\"__getitem__\" method not defined on type \"complex\"",
+            "range": {
+                "start": {
+                    "line": 562,
+                    "character": 67
+                },
+                "end": {
+                    "line": 562,
+                    "character": 78
+                }
+            },
+            "rule": "reportIndexIssue"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\db.py",
+            "severity": "error",
+            "message": "Expression of type \"None\" cannot be assigned to parameter of type \"str\"\n  \"None\" is not assignable to \"str\"",
+            "range": {
+                "start": {
+                    "line": 376,
+                    "character": 114
+                },
+                "end": {
+                    "line": 376,
+                    "character": 118
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\grib_reader.py",
+            "severity": "error",
+            "message": "Argument of type \"Hashable\" cannot be assigned to parameter \"variable\" of type \"str\" in function \"__init__\"\n  \"Hashable\" is not assignable to \"str\"",
+            "range": {
+                "start": {
+                    "line": 135,
+                    "character": 17
+                },
+                "end": {
+                    "line": 135,
+                    "character": 25
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\grib_reader.py",
+            "severity": "error",
+            "message": "Argument of type \"Hashable\" cannot be assigned to parameter \"variable\" of type \"str\" in function \"__init__\"\n  \"Hashable\" is not assignable to \"str\"",
+            "range": {
+                "start": {
+                    "line": 181,
+                    "character": 33
+                },
+                "end": {
+                    "line": 181,
+                    "character": 38
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\metatile_processor.py",
+            "severity": "error",
+            "message": "\"png_bytes\" is possibly unbound",
+            "range": {
+                "start": {
+                    "line": 329,
+                    "character": 93
+                },
+                "end": {
+                    "line": 329,
+                    "character": 102
+                }
+            },
+            "rule": "reportPossiblyUnboundVariable"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\metatile_processor.py",
+            "severity": "error",
+            "message": "\"png_bytes\" is possibly unbound",
+            "range": {
+                "start": {
+                    "line": 330,
+                    "character": 42
+                },
+                "end": {
+                    "line": 330,
+                    "character": 51
+                }
+            },
+            "rule": "reportPossiblyUnboundVariable"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\metatile_processor.py",
+            "severity": "error",
+            "message": "\"field_wfld_bytes\" is possibly unbound",
+            "range": {
+                "start": {
+                    "line": 332,
+                    "character": 94
+                },
+                "end": {
+                    "line": 332,
+                    "character": 110
+                }
+            },
+            "rule": "reportPossiblyUnboundVariable"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\metatile_processor.py",
+            "severity": "error",
+            "message": "\"field_wfld_bytes\" is possibly unbound",
+            "range": {
+                "start": {
+                    "line": 333,
+                    "character": 42
+                },
+                "end": {
+                    "line": 333,
+                    "character": 58
+                }
+            },
+            "rule": "reportPossiblyUnboundVariable"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\metatile_processor.py",
+            "severity": "error",
+            "message": "\"metatile\" is possibly unbound",
+            "range": {
+                "start": {
+                    "line": 348,
+                    "character": 26
+                },
+                "end": {
+                    "line": 348,
+                    "character": 34
+                }
+            },
+            "rule": "reportPossiblyUnboundVariable"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\metatile_processor.py",
+            "severity": "error",
+            "message": "\"metatile\" is possibly unbound",
+            "range": {
+                "start": {
+                    "line": 348,
+                    "character": 45
+                },
+                "end": {
+                    "line": 348,
+                    "character": 53
+                }
+            },
+            "rule": "reportPossiblyUnboundVariable"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\metatile_processor.py",
+            "severity": "error",
+            "message": "No overloads for \"nan_to_num\" match the provided arguments",
+            "range": {
+                "start": {
+                    "line": 482,
+                    "character": 26
+                },
+                "end": {
+                    "line": 482,
+                    "character": 50
+                }
+            },
+            "rule": "reportCallIssue"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\metatile_processor.py",
+            "severity": "error",
+            "message": "Argument of type \"float\" cannot be assigned to parameter \"copy\" of type \"bool\" in function \"nan_to_num\"\n  \"float\" is not assignable to \"bool\"",
+            "range": {
+                "start": {
+                    "line": 482,
+                    "character": 46
+                },
+                "end": {
+                    "line": 482,
+                    "character": 49
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\metatile_processor.py",
+            "severity": "error",
+            "message": "No overloads for \"nan_to_num\" match the provided arguments",
+            "range": {
+                "start": {
+                    "line": 483,
+                    "character": 26
+                },
+                "end": {
+                    "line": 483,
+                    "character": 50
+                }
+            },
+            "rule": "reportCallIssue"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\metatile_processor.py",
+            "severity": "error",
+            "message": "Argument of type \"float\" cannot be assigned to parameter \"copy\" of type \"bool\" in function \"nan_to_num\"\n  \"float\" is not assignable to \"bool\"",
+            "range": {
+                "start": {
+                    "line": 483,
+                    "character": 46
+                },
+                "end": {
+                    "line": 483,
+                    "character": 49
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\metatile_processor.py",
+            "severity": "error",
+            "message": "\"metatile\" is possibly unbound",
+            "range": {
+                "start": {
+                    "line": 705,
+                    "character": 26
+                },
+                "end": {
+                    "line": 705,
+                    "character": 34
+                }
+            },
+            "rule": "reportPossiblyUnboundVariable"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\metatile_processor.py",
+            "severity": "error",
+            "message": "\"metatile\" is possibly unbound",
+            "range": {
+                "start": {
+                    "line": 705,
+                    "character": 45
+                },
+                "end": {
+                    "line": 705,
+                    "character": 53
+                }
+            },
+            "rule": "reportPossiblyUnboundVariable"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\metatile_processor.py",
+            "severity": "error",
+            "message": "\"metatile\" is possibly unbound",
+            "range": {
+                "start": {
+                    "line": 877,
+                    "character": 26
+                },
+                "end": {
+                    "line": 877,
+                    "character": 34
+                }
+            },
+            "rule": "reportPossiblyUnboundVariable"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\metatile_processor.py",
+            "severity": "error",
+            "message": "\"metatile\" is possibly unbound",
+            "range": {
+                "start": {
+                    "line": 877,
+                    "character": 45
+                },
+                "end": {
+                    "line": 877,
+                    "character": 53
+                }
+            },
+            "rule": "reportPossiblyUnboundVariable"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\metatile_processor.py",
+            "severity": "error",
+            "message": "\"metatile\" is possibly unbound",
+            "range": {
+                "start": {
+                    "line": 1096,
+                    "character": 26
+                },
+                "end": {
+                    "line": 1096,
+                    "character": 34
+                }
+            },
+            "rule": "reportPossiblyUnboundVariable"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\metatile_processor.py",
+            "severity": "error",
+            "message": "\"metatile\" is possibly unbound",
+            "range": {
+                "start": {
+                    "line": 1096,
+                    "character": 45
+                },
+                "end": {
+                    "line": 1096,
+                    "character": 53
+                }
+            },
+            "rule": "reportPossiblyUnboundVariable"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\precip_classifier.py",
+            "severity": "error",
+            "message": "\"Literal[1]\" is not iterable\n  \"__iter__\" method not defined",
+            "range": {
+                "start": {
+                    "line": 68,
+                    "character": 17
+                },
+                "end": {
+                    "line": 68,
+                    "character": 28
+                }
+            },
+            "rule": "reportGeneralTypeIssues"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\precip_classifier.py",
+            "severity": "error",
+            "message": "\"Literal[0]\" is not iterable\n  \"__iter__\" method not defined",
+            "range": {
+                "start": {
+                    "line": 68,
+                    "character": 17
+                },
+                "end": {
+                    "line": 68,
+                    "character": 28
+                }
+            },
+            "rule": "reportGeneralTypeIssues"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\precip_reader.py",
+            "severity": "error",
+            "message": "\"lat\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 79,
+                    "character": 16
+                },
+                "end": {
+                    "line": 79,
+                    "character": 19
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\precip_reader.py",
+            "severity": "error",
+            "message": "\"lon\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 80,
+                    "character": 16
+                },
+                "end": {
+                    "line": 80,
+                    "character": 19
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\precip_reader.py",
+            "severity": "error",
+            "message": "\"values\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 82,
+                    "character": 19
+                },
+                "end": {
+                    "line": 82,
+                    "character": 25
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\shared_mem.py",
+            "severity": "error",
+            "message": "\"shared_memory\" is possibly unbound",
+            "range": {
+                "start": {
+                    "line": 28,
+                    "character": 14
+                },
+                "end": {
+                    "line": 28,
+                    "character": 27
+                }
+            },
+            "rule": "reportPossiblyUnboundVariable"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\shared_mem.py",
+            "severity": "error",
+            "message": "\"shared_memory\" is possibly unbound",
+            "range": {
+                "start": {
+                    "line": 42,
+                    "character": 14
+                },
+                "end": {
+                    "line": 42,
+                    "character": 27
+                }
+            },
+            "rule": "reportPossiblyUnboundVariable"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\wind_temporal.py",
+            "severity": "error",
+            "message": "Argument of type \"ndarray[_AnyShape, dtype[Any]] | None\" cannot be assigned to parameter \"u_prev\" of type \"ndarray[_AnyShape, dtype[Any]]\" in function \"encode_temporal_delta\"\n  Type \"ndarray[_AnyShape, dtype[Any]] | None\" is not assignable to type \"ndarray[_AnyShape, dtype[Any]]\"\n    \"None\" is not assignable to \"ndarray[_AnyShape, dtype[Any]]\"",
+            "range": {
+                "start": {
+                    "line": 158,
+                    "character": 41
+                },
+                "end": {
+                    "line": 158,
+                    "character": 47
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\core\\wind_temporal.py",
+            "severity": "error",
+            "message": "Argument of type \"ndarray[_AnyShape, dtype[Any]] | None\" cannot be assigned to parameter \"v_prev\" of type \"ndarray[_AnyShape, dtype[Any]]\" in function \"encode_temporal_delta\"\n  Type \"ndarray[_AnyShape, dtype[Any]] | None\" is not assignable to type \"ndarray[_AnyShape, dtype[Any]]\"\n    \"None\" is not assignable to \"ndarray[_AnyShape, dtype[Any]]\"",
+            "range": {
+                "start": {
+                    "line": 158,
+                    "character": 49
+                },
+                "end": {
+                    "line": 158,
+                    "character": 55
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\routers\\admin.py",
+            "severity": "error",
+            "message": "Cannot access attribute \"year\" for class \"str\"\n  Attribute \"year\" is unknown",
+            "range": {
+                "start": {
+                    "line": 2001,
+                    "character": 31
+                },
+                "end": {
+                    "line": 2001,
+                    "character": 35
+                }
+            },
+            "rule": "reportAttributeAccessIssue"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\routers\\admin.py",
+            "severity": "error",
+            "message": "Cannot access attribute \"month\" for class \"str\"\n  Attribute \"month\" is unknown",
+            "range": {
+                "start": {
+                    "line": 2001,
+                    "character": 39
+                },
+                "end": {
+                    "line": 2001,
+                    "character": 44
+                }
+            },
+            "rule": "reportAttributeAccessIssue"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\routers\\admin.py",
+            "severity": "error",
+            "message": "Cannot access attribute \"day\" for class \"str\"\n  Attribute \"day\" is unknown",
+            "range": {
+                "start": {
+                    "line": 2001,
+                    "character": 48
+                },
+                "end": {
+                    "line": 2001,
+                    "character": 51
+                }
+            },
+            "rule": "reportAttributeAccessIssue"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\routers\\admin.py",
+            "severity": "error",
+            "message": "\"read_pointer\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 2027,
+                    "character": 24
+                },
+                "end": {
+                    "line": 2027,
+                    "character": 36
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\routers\\admin.py",
+            "severity": "error",
+            "message": "Argument of type \"str | None\" cannot be assigned to parameter \"date_str\" of type \"str\" in function \"collect_log_text_for_date\"\n  Type \"str | None\" is not assignable to type \"str\"\n    \"None\" is not assignable to \"str\"",
+            "range": {
+                "start": {
+                    "line": 2211,
+                    "character": 64
+                },
+                "end": {
+                    "line": 2211,
+                    "character": 68
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\routers\\admin.py",
+            "severity": "error",
+            "message": "Argument of type \"str | None\" cannot be assigned to parameter \"date_str\" of type \"str\" in function \"collect_log_text_for_date\"\n  Type \"str | None\" is not assignable to type \"str\"\n    \"None\" is not assignable to \"str\"",
+            "range": {
+                "start": {
+                    "line": 2224,
+                    "character": 69
+                },
+                "end": {
+                    "line": 2224,
+                    "character": 73
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\routers\\admin.py",
+            "severity": "error",
+            "message": "\"day_start\" is possibly unbound",
+            "range": {
+                "start": {
+                    "line": 2245,
+                    "character": 27
+                },
+                "end": {
+                    "line": 2245,
+                    "character": 36
+                }
+            },
+            "rule": "reportPossiblyUnboundVariable"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\routers\\admin.py",
+            "severity": "error",
+            "message": "\"day_end\" is possibly unbound",
+            "range": {
+                "start": {
+                    "line": 2246,
+                    "character": 25
+                },
+                "end": {
+                    "line": 2246,
+                    "character": 32
+                }
+            },
+            "rule": "reportPossiblyUnboundVariable"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\services\\resource_guard.py",
+            "severity": "error",
+            "message": "\"psutil\" is possibly unbound",
+            "range": {
+                "start": {
+                    "line": 35,
+                    "character": 18
+                },
+                "end": {
+                    "line": 35,
+                    "character": 24
+                }
+            },
+            "rule": "reportPossiblyUnboundVariable"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\services\\resource_guard.py",
+            "severity": "error",
+            "message": "\"psutil\" is possibly unbound",
+            "range": {
+                "start": {
+                    "line": 41,
+                    "character": 26
+                },
+                "end": {
+                    "line": 41,
+                    "character": 32
+                }
+            },
+            "rule": "reportPossiblyUnboundVariable"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\services\\resource_guard.py",
+            "severity": "error",
+            "message": "\"psutil\" is possibly unbound",
+            "range": {
+                "start": {
+                    "line": 49,
+                    "character": 39
+                },
+                "end": {
+                    "line": 49,
+                    "character": 45
+                }
+            },
+            "rule": "reportPossiblyUnboundVariable"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\services\\resource_guard.py",
+            "severity": "error",
+            "message": "\"psutil\" is possibly unbound",
+            "range": {
+                "start": {
+                    "line": 86,
+                    "character": 37
+                },
+                "end": {
+                    "line": 86,
+                    "character": 43
+                }
+            },
+            "rule": "reportPossiblyUnboundVariable"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\services\\resource_guard.py",
+            "severity": "error",
+            "message": "\"psutil\" is possibly unbound",
+            "range": {
+                "start": {
+                    "line": 87,
+                    "character": 37
+                },
+                "end": {
+                    "line": 87,
+                    "character": 43
+                }
+            },
+            "rule": "reportPossiblyUnboundVariable"
+        },
+        {
+            "file": "e:\\DOAN\\Search_wheather_forecast_app\\noaa_be\\app\\services\\resource_guard.py",
+            "severity": "error",
+            "message": "\"psutil\" is possibly unbound",
+            "range": {
+                "start": {
+                    "line": 88,
+                    "character": 54
+                },
+                "end": {
+                    "line": 88,
+                    "character": 60
+                }
+            },
+            "rule": "reportPossiblyUnboundVariable"
+        }
+    ],
+    "summary": {
+        "filesAnalyzed": 48,
+        "errorCount": 86,
+        "warningCount": 0,
+        "informationCount": 0,
+        "timeInSec": 10.756
+    }
+}
+

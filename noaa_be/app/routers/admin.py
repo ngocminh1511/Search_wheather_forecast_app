@@ -1999,7 +1999,7 @@ def _collect_diagnostics(probe_noaa: bool = True) -> dict:
                 from ..services.availability_service import parse_run_id
                 d, h = parse_run_id(last_run_id)
                 from datetime import datetime as _dt
-                run_dt = _dt(d.year, d.month, d.day, h, tzinfo=timezone.utc)
+                run_dt = _dt(int(d[:4]), int(d[4:6]), int(d[6:8]), h, tzinfo=timezone.utc)
                 age_hours = round((now - run_dt).total_seconds() / 3600, 1)
             except Exception:
                 pass
@@ -2025,6 +2025,8 @@ def _collect_diagnostics(probe_noaa: bool = True) -> dict:
         try:
             from ..services.bunny_storage import get_bunny_client
             bunny = get_bunny_client()
+            if bunny is None:
+                raise RuntimeError("Bunny client unavailable (missing config)")
             ptr = bunny.read_pointer("rain_basic")
             checks["bunny"] = {
                 "ok": ptr is not None,
@@ -2168,6 +2170,8 @@ def diagnostics_export(
     now = datetime.now(tz=timezone.utc)
 
     # Determine coverage window
+    day_start: datetime | None = None
+    day_end: datetime | None = None
     if date:
         # Single-day mode — strict UTC day boundaries
         try:
@@ -2208,6 +2212,7 @@ def diagnostics_export(
         if include_app_log:
             try:
                 if mode == "date":
+                    assert date is not None
                     from ..services.log_files import collect_log_text_for_date
                     data = collect_log_text_for_date("app.log", date, max_bytes=MAX_LOG_BYTES)
                 else:
@@ -2221,6 +2226,7 @@ def diagnostics_export(
         if include_events:
             try:
                 if mode == "date":
+                    assert date is not None
                     from ..services.log_files import collect_log_text_for_date
                     data = collect_log_text_for_date("events.jsonl", date, max_bytes=MAX_LOG_BYTES)
                 else:
@@ -2243,6 +2249,7 @@ def diagnostics_export(
         # 6. pipeline_jobs — filtered to coverage window by updated_at (unix ts)
         try:
             if mode == "date":
+                assert day_start is not None and day_end is not None
                 ts_start = day_start.timestamp()
                 ts_end = day_end.timestamp()
             else:

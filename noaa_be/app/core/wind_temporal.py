@@ -156,6 +156,7 @@ def generate_wind_tiles_for_run(
             data = encode_keyframe(u, v)
             path = tile_dir / f"f{fff:03d}.wf"
         else:
+            assert u_prev is not None and v_prev is not None
             data = encode_temporal_delta(u_prev, v_prev, u, v)
             path = tile_dir / f"f{fff:03d}.wfd"
 

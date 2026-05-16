@@ -314,7 +314,8 @@ def _apply_stepped_snow(
     cfg: dict,
     cmap: mcolors.ListedColormap,
 ) -> tuple[np.ndarray, np.ndarray]:
-    n_colors = len(cmap.colors)
+    cmap_colors: list = list(cmap.colors)  # type: ignore[arg-type]
+    n_colors = len(cmap_colors)
     trans_values = _snow_display_transform(values.astype(np.float64))
     trans_bins = _snow_bins_transformed(cfg["norm_bins"])
     idx = np.digitize(trans_values, trans_bins)
@@ -338,7 +339,8 @@ def _apply_stepped(
       - offset=1: digitize returns 1 for below-first-bin; subtract 1 → 0.
         Used by rain_basic, snow_depth, precip_debug_ptype.
     """
-    n_colors = len(cmap.colors)
+    cmap_colors: list = list(cmap.colors)  # type: ignore[arg-type]
+    n_colors = len(cmap_colors)
     bins_arr = np.array(cfg["norm_bins"], dtype=np.float64)
     offset: int = cfg.get("norm_offset", 0)
     idx = np.digitize(values.astype(np.float64), bins_arr) - offset
@@ -348,7 +350,7 @@ def _apply_stepped(
     for i in range(n_colors):
         mask = (idx == i)
         if mask.any():
-            color = cmap.colors[i]
+            color = cmap_colors[i]
             if isinstance(color, str):
                 rgb = mcolors.to_rgb(color)
                 rgba[mask] = [int(rgb[0]*255), int(rgb[1]*255), int(rgb[2]*255), 255]
@@ -442,8 +444,10 @@ def apply_colormap(
 
     # ── 2. Alpha assignment ─────────────────────────────────────────────
     if alpha_mode == "banded_alpha":
+        assert bin_idx is not None
         alpha_lut = np.array(cfg["alpha_per_bin"], dtype=np.uint8)
-        n_colors_a = len(cmap.colors)
+        cmap_colors_a: list = list(cmap.colors)  # type: ignore[arg-type]
+        n_colors_a = len(cmap_colors_a)
         idx_a = np.clip(bin_idx, 0, n_colors_a - 1)
         rgba[..., 3] = alpha_lut[idx_a]
     elif alpha_mode == "scale":
@@ -545,22 +549,23 @@ def get_precip_metadata_json() -> dict:
     Return JSON metadata for advanced_precipitation_base to guide FE decoding.
     """
     cmap = _CUSTOM_ADV_PRECIP_BASE
+    cmap_colors: list = list(cmap.colors)  # type: ignore[arg-type]
     mapping = {}
-    
+
     # 0 = dry
     mapping["0"] = {"type": "dry", "level": 0, "hex": "#00000000"}
-    
+
     # 1..6 = rain
     for i in range(1, 7):
-        mapping[str(i)] = {"type": "rain", "level": i, "hex": cmap.colors[i]}
-        
+        mapping[str(i)] = {"type": "rain", "level": i, "hex": cmap_colors[i]}
+
     # 7..12 = mixed
     for i in range(7, 13):
-        mapping[str(i)] = {"type": "mixed", "level": i - 6, "hex": cmap.colors[i]}
-        
+        mapping[str(i)] = {"type": "mixed", "level": i - 6, "hex": cmap_colors[i]}
+
     # 13..18 = snow
     for i in range(13, 19):
-        mapping[str(i)] = {"type": "snow", "level": i - 12, "hex": cmap.colors[i]}
+        mapping[str(i)] = {"type": "snow", "level": i - 12, "hex": cmap_colors[i]}
         
     return {
         "layer": "advanced_precipitation_base",

@@ -222,14 +222,13 @@ def process_wind_metatile_worker(
         "metatiles_total": 1, "metatiles_empty_skipped": 0,
         "tiles_empty_skipped_inside_nonempty": 0,
     }
-    
+    metatile = Metatile(z, cx, cy)
+
     try:
         merc_u = _np_load(npy_u_path)
         merc_v = _np_load(npy_v_path)
         merc_speed = _np_load(npy_speed_path)
         canvas_size = merc_u.shape[0]
-        
-        metatile = Metatile(z, cx, cy)
         x0, y0, x1, y1 = metatile.get_master_canvas_slice(canvas_size, px_per_meter)
         
         if x1 <= x0 or y1 <= y0:
@@ -309,11 +308,13 @@ def process_wind_metatile_worker(
                     continue
                     
                 t_enc_start = time.perf_counter()
+                png_bytes = b""
+                field_wfld_bytes = b""
                 if not field_only:
                     # 1. Base PNG
                     img_speed = Image.fromarray(tile_rgba, mode="RGBA")
                     png_bytes = _encode_tile_image(img_speed, "wind_surface")
-                
+
                 if not base_only:
                     # 2. Field WFLD: 8-byte header + Zstd(2D-delta U ∥ 2D-delta V)
                     tile_u_t = u_scaled[px_y0:px_y1, px_x0:px_x1]
@@ -433,14 +434,13 @@ def process_wind_temporal_metatile_worker(
         "tiles_total": 0, "tiles_saved": 0, "tiles_empty_skipped": 0,
         "errors": 0, "bytes": 0, "duration_s": 0.0,
     }
+    metatile = Metatile(z, cx, cy)
 
     try:
         # mmap all canvases — OS only loads accessed pages
         merc_u_all = [_np_load(p) for p in npy_u_paths]
         merc_v_all = [_np_load(p) for p in npy_v_paths]
         canvas_size = merc_u_all[0].shape[0]
-
-        metatile = Metatile(z, cx, cy)
         x0, y0, x1, y1 = metatile.get_master_canvas_slice(canvas_size, px_per_meter)
 
         if x1 <= x0 or y1 <= y0:
@@ -480,8 +480,8 @@ def process_wind_temporal_metatile_worker(
                 up_v[~valid_up] = np.nan
 
             nan_uv = np.isnan(up_u) | np.isnan(up_v)
-            u_s = np.clip(np.nan_to_num(up_u, 0.0) * (127.0 / 100.0), -127, 127).astype(np.int8)
-            v_s = np.clip(np.nan_to_num(up_v, 0.0) * (127.0 / 100.0), -127, 127).astype(np.int8)
+            u_s = np.clip(np.nan_to_num(up_u, nan=0.0) * (127.0 / 100.0), -127, 127).astype(np.int8)
+            v_s = np.clip(np.nan_to_num(up_v, nan=0.0) * (127.0 / 100.0), -127, 127).astype(np.int8)
             u_s[nan_uv] = -128
             v_s[nan_uv] = -128
             return u_s, v_s
@@ -606,12 +606,11 @@ def process_adv_precip_metatile_worker(
         "metatiles_total": 1, "metatiles_empty_skipped": 0,
         "tiles_empty_skipped_inside_nonempty": 0,
     }
-    
+    metatile = Metatile(z, cx, cy)
+
     try:
         mercs = {k: _np_load(v) for k, v in npy_paths.items()}
         canvas_size = mercs["prate"].shape[0]
-        
-        metatile = Metatile(z, cx, cy)
         x0, y0, x1, y1 = metatile.get_master_canvas_slice(canvas_size, px_per_meter)
         
         if x1 <= x0 or y1 <= y0:
@@ -784,12 +783,11 @@ def process_precip_classified_metatile_worker(
         "metatiles_total": 1, "metatiles_empty_skipped": 0,
         "tiles_empty_skipped_inside_nonempty": 0,
     }
+    metatile = Metatile(z, cx, cy)
 
     try:
         combined = _np_load(combined_npy_path)
         canvas_size = combined.shape[0]
-
-        metatile = Metatile(z, cx, cy)
         x0, y0, x1, y1 = metatile.get_master_canvas_slice(canvas_size, px_per_meter)
 
         if x1 <= x0 or y1 <= y0:
@@ -963,7 +961,8 @@ def process_metatile_worker(
         "metatiles_total": 1, "metatiles_empty_skipped": 0,
         "tiles_empty_skipped_inside_nonempty": 0,
     }
-    
+    metatile = Metatile(z, cx, cy)
+
     try:
         # Validate the npy canvas file exists before any worker tries to open it.
         # This gives a clear error instead of a cryptic FileNotFoundError deep in mmap.
@@ -973,9 +972,7 @@ def process_metatile_worker(
             )
         merc = _np_load(npy_path)
         canvas_size = merc.shape[0]
-        
-        metatile = Metatile(z, cx, cy)
-        
+
         # Slicing from master canvas
         x0, y0, x1, y1 = metatile.get_master_canvas_slice(canvas_size, px_per_meter)
         

@@ -20,12 +20,14 @@ import csv
 import time
 import threading
 import argparse
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional  # noqa: F401
 
+psutil: Any
 try:
-    import psutil
+    import psutil  # type: ignore[no-redef]
     _HAS_PSUTIL = True
 except ImportError:
+    psutil = None
     _HAS_PSUTIL = False
 
 from pathlib import Path

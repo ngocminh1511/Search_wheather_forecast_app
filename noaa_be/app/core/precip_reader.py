@@ -71,6 +71,7 @@ def read_precip_fields(grib_path: Path) -> PrecipFields:
     prate = _pick(_PRATE_NAMES, "PRATE")
     crain = _pick(_CRAIN_NAMES, "CRAIN")
     csnow = _pick(_CSNOW_NAMES, "CSNOW")
+    assert prate is not None
     
     # Optional fields (if not found, we will create zero-arrays)
     cicep = _pick(_CICEP_NAMES, "CICEP", optional=True)

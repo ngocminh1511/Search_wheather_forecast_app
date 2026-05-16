@@ -1,0 +1,997 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<title>NOAA BE — Pipeline (dễ hiểu)</title>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #050b14;
+  --card: rgba(16, 24, 39, 0.6);
+  --card-hi: rgba(255, 255, 255, 0.04);
+  --border: rgba(255, 255, 255, 0.1);
+  --text: #f8fafc;
+  --muted: #94a3b8;
+  --blue: #60a5fa;
+  --cyan: #38bdf8;
+  --green: #34d399;
+  --yellow: #fbbf24;
+  --orange: #fb923c;
+  --purple: #a78bfa;
+  --pink: #f472b6;
+  --red: #ef4444;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Outfit', sans-serif;
+  padding: 24px 32px;
+  line-height: 1.6;
+  background-image:
+    radial-gradient(circle at 20% 0%, rgba(96,165,250,0.08), transparent 50%),
+    radial-gradient(circle at 80% 100%, rgba(52,211,153,0.08), transparent 50%);
+}
+.container { max-width: 1280px; margin: 0 auto; }
+.mono { font-family: 'JetBrains Mono', monospace; }
+
+/* Header */
+header { text-align: center; padding: 32px 0 16px; }
+h1 { font-size: 36px; font-weight: 800; margin-bottom: 12px; }
+header p { font-size: 18px; color: var(--muted); max-width: 760px; margin: 0 auto; }
+
+/* Section headers */
+.section {
+  margin-top: 56px;
+  scroll-margin-top: 24px;
+}
+.section-num {
+  display: inline-block;
+  width: 36px; height: 36px;
+  background: linear-gradient(135deg, var(--blue), var(--cyan));
+  border-radius: 10px;
+  font-weight: 700;
+  text-align: center;
+  line-height: 36px;
+  font-size: 18px;
+  margin-right: 12px;
+  vertical-align: middle;
+  color: var(--bg);
+}
+h2 {
+  font-size: 24px; font-weight: 700;
+  margin-bottom: 8px;
+  display: flex; align-items: center;
+}
+.section-intro {
+  color: var(--muted); font-size: 15px;
+  margin-bottom: 24px; padding-left: 48px;
+}
+
+/* The "Big Picture" flow */
+.bigflow {
+  display: grid;
+  grid-template-columns: 1fr 40px 1fr 40px 1fr 40px 1fr;
+  align-items: stretch;
+  gap: 0;
+  margin: 16px 0 24px;
+}
+.bigflow-box {
+  background: var(--card);
+  border: 2px solid var(--border);
+  border-radius: 14px;
+  padding: 20px;
+  text-align: center;
+  display: flex; flex-direction: column; justify-content: center;
+}
+.bigflow-box.b1 { border-color: rgba(251,191,36,0.4); }
+.bigflow-box.b2 { border-color: rgba(96,165,250,0.4); }
+.bigflow-box.b3 { border-color: rgba(167,139,250,0.4); }
+.bigflow-box.b4 { border-color: rgba(52,211,153,0.4); }
+.bigflow-box .icon { font-size: 36px; margin-bottom: 8px; }
+.bigflow-box .name { font-weight: 700; font-size: 16px; margin-bottom: 4px; }
+.bigflow-box .sub { font-size: 12px; color: var(--muted); }
+.bigflow-arrow {
+  display: flex; align-items: center; justify-content: center;
+  color: var(--cyan); font-size: 26px; font-weight: bold;
+}
+
+/* Map cards */
+.maps {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 12px;
+}
+.map-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+  text-align: center;
+  transition: 0.2s;
+}
+.map-card:hover { transform: translateY(-2px); border-color: var(--cyan); }
+.map-card .icon { font-size: 32px; margin-bottom: 8px; }
+.map-card .name { font-weight: 600; font-size: 14px; margin-bottom: 4px; }
+.map-card .detail { font-size: 11px; color: var(--muted); }
+
+/* Timeline */
+.timeline {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  position: relative;
+  padding: 24px 0;
+}
+.timeline::before {
+  content: '';
+  position: absolute;
+  top: 50%; left: 5%; right: 5%; height: 2px;
+  background: linear-gradient(to right, var(--purple), var(--cyan));
+  z-index: 0;
+}
+.timeline-tick {
+  position: relative;
+  background: var(--card);
+  border: 2px solid var(--purple);
+  border-radius: 50px;
+  padding: 16px;
+  text-align: center;
+  z-index: 1;
+}
+.timeline-tick .time {
+  font-size: 22px; font-weight: 700;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--purple);
+}
+.timeline-tick .label { font-size: 11px; color: var(--muted); }
+
+/* Step cards (numbered) */
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.step {
+  display: grid;
+  grid-template-columns: 64px 1fr auto;
+  gap: 20px;
+  align-items: center;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 20px 24px;
+  position: relative;
+}
+.step::after {
+  content: '↓';
+  position: absolute;
+  bottom: -20px; left: 32px;
+  color: var(--cyan);
+  font-size: 24px;
+  z-index: 1;
+}
+.step:last-child::after { display: none; }
+.step-num {
+  width: 48px; height: 48px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--blue), var(--purple));
+  font-weight: 700; font-size: 20px;
+  text-align: center; line-height: 48px;
+  color: var(--bg);
+  flex-shrink: 0;
+}
+.step-content h3 { font-size: 17px; font-weight: 600; margin-bottom: 4px; }
+.step-content p { color: var(--muted); font-size: 13px; }
+.step-content .analogy {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 2px 10px;
+  background: rgba(96,165,250,0.1);
+  color: var(--blue);
+  border-radius: 12px;
+  font-size: 12px;
+  font-style: italic;
+}
+.step-time {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px; color: var(--muted);
+  background: rgba(255,255,255,0.04);
+  padding: 4px 10px;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
+/* 24h Gantt-style timeline */
+.day-grid {
+  display: grid;
+  grid-template-columns: 130px repeat(24, 1fr);
+  gap: 3px;
+  font-size: 11px;
+  margin-bottom: 6px;
+}
+.day-grid .hour-label {
+  text-align: center;
+  color: var(--muted);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  padding: 4px 0;
+}
+.day-grid .row-label {
+  display: flex; align-items: center;
+  font-weight: 600;
+  padding: 8px 12px;
+  background: rgba(255,255,255,0.03);
+  border-radius: 6px;
+}
+.day-grid .row-cell {
+  background: rgba(255,255,255,0.02);
+  border-radius: 4px;
+  min-height: 28px;
+  position: relative;
+}
+.day-event {
+  position: absolute;
+  top: 2px; bottom: 2px;
+  border-radius: 4px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  padding: 0 6px;
+  cursor: help;
+}
+.day-event.cycle-fire { background: rgba(96,165,250,0.4); color: white; font-weight: 600; }
+.day-event.cycle-done { background: rgba(52,211,153,0.25); color: var(--green); border: 1px solid rgba(52,211,153,0.4); }
+.day-event.noaa { background: rgba(251,191,36,0.4); color: white; font-weight: 600; }
+.day-event.catchup { background: rgba(167,139,250,0.3); color: var(--purple); border: 1px solid rgba(167,139,250,0.5); }
+.day-event.retention { background: rgba(244,114,182,0.3); color: var(--pink); border: 1px solid rgba(244,114,182,0.5); }
+.day-event.report { background: rgba(56,189,248,0.4); color: white; font-weight: 600; }
+.day-event.gantt-bar { background: linear-gradient(90deg, rgba(96,165,250,0.3), rgba(52,211,153,0.3)); border: 1px solid rgba(96,165,250,0.4); }
+
+/* Cycle activity zones */
+.cycle-zone {
+  background: rgba(96,165,250,0.05);
+  border-left: 2px solid var(--blue);
+  position: relative;
+  margin: 16px 0;
+  padding: 16px;
+  border-radius: 8px;
+}
+.cycle-zone-title {
+  display: flex;
+  justify-content: space-between;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+.cycle-zone-title .cycle-name { font-size: 16px; color: var(--cyan); }
+.cycle-zone-title .cycle-time { font-family: 'JetBrains Mono', monospace; color: var(--muted); font-size: 12px; }
+.cycle-zone-flow {
+  display: flex; align-items: center; gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+.cycle-zone-flow .pill {
+  padding: 4px 10px; border-radius: 14px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid var(--border);
+  font-family: 'JetBrains Mono', monospace;
+}
+.cycle-zone-flow .pill.fire { background: rgba(96,165,250,0.2); color: var(--blue); border-color: rgba(96,165,250,0.4); }
+.cycle-zone-flow .pill.done { background: rgba(52,211,153,0.15); color: var(--green); border-color: rgba(52,211,153,0.3); }
+.cycle-zone-flow .arrow { color: var(--muted); }
+
+/* Safety net cards */
+.safety {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+.safety-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 18px;
+  border-top: 3px solid var(--orange);
+}
+.safety-card .q {
+  font-weight: 600; font-size: 15px;
+  margin-bottom: 8px; color: var(--yellow);
+}
+.safety-card .a { color: var(--text); font-size: 13px; line-height: 1.7; }
+.safety-card .when {
+  display: inline-block;
+  margin-top: 8px;
+  padding: 2px 10px;
+  background: rgba(52,211,153,0.1);
+  color: var(--green);
+  border-radius: 12px;
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* How-to-know cards */
+.observe {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+.observe-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.observe-card .icon {
+  font-size: 28px;
+  flex-shrink: 0;
+  width: 48px;
+  height: 48px;
+  background: rgba(167,139,250,0.1);
+  border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+}
+.observe-card .title { font-weight: 600; margin-bottom: 4px; }
+.observe-card .desc { font-size: 12px; color: var(--muted); line-height: 1.6; }
+
+/* Tech details (collapsible) */
+details {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px 20px;
+  margin-top: 24px;
+}
+details summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--cyan);
+  user-select: none;
+}
+details summary:hover { color: var(--blue); }
+details[open] summary { margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+.tech-table {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  gap: 6px 16px;
+  font-size: 12px;
+}
+.tech-table .k { color: var(--muted); font-family: 'JetBrains Mono', monospace; }
+.tech-table .v { font-family: 'JetBrains Mono', monospace; word-break: break-all; }
+
+/* Final TL;DR */
+.tldr {
+  margin-top: 56px;
+  padding: 32px;
+  background: linear-gradient(135deg, rgba(96,165,250,0.08), rgba(52,211,153,0.06));
+  border: 1px solid rgba(96,165,250,0.2);
+  border-radius: 16px;
+  text-align: center;
+}
+.tldr h2 { justify-content: center; }
+.tldr p { font-size: 16px; max-width: 720px; margin: 8px auto; color: var(--text); }
+
+footer { margin-top: 56px; padding: 16px; text-align: center; font-size: 12px; color: var(--muted); }
+
+@media (max-width: 900px) {
+  .bigflow { grid-template-columns: 1fr; }
+  .bigflow-arrow { transform: rotate(90deg); padding: 8px 0; }
+  .maps { grid-template-columns: repeat(2, 1fr); }
+  .timeline { grid-template-columns: repeat(2, 1fr); }
+  .timeline::before { display: none; }
+  .safety { grid-template-columns: 1fr; }
+  .observe { grid-template-columns: 1fr; }
+  .step { grid-template-columns: 48px 1fr; }
+  .step-time { grid-column: 2; }
+}
+</style>
+</head>
+<body>
+<div class="container">
+
+<header>
+  <h1>🌪️ NOAA Weather Pipeline</h1>
+  <p>Cách hệ thống tự lấy dữ liệu thời tiết từ NOAA của Mỹ, biến thành bản đồ, và đẩy lên CDN cho user xem — <strong>tự động 4 lần mỗi ngày</strong>, không cần ai click.</p>
+</header>
+
+<!-- ──────────────────────────────────────────────── -->
+<!-- SECTION 1: BIG PICTURE                            -->
+<!-- ──────────────────────────────────────────────── -->
+<div class="section">
+  <h2><span class="section-num">1</span>Bức tranh tổng quát</h2>
+  <p class="section-intro">Pipeline có 4 thành phần chính. Dữ liệu chảy từ trái sang phải.</p>
+
+  <div class="bigflow">
+    <div class="bigflow-box b1">
+      <div class="icon">☁️</div>
+      <div class="name">NOAA Mỹ</div>
+      <div class="sub">Nguồn dữ liệu gốc (file GRIB2)</div>
+    </div>
+    <div class="bigflow-arrow">→</div>
+    <div class="bigflow-box b2">
+      <div class="icon">⚙️</div>
+      <div class="name">Server của bạn</div>
+      <div class="sub">Tải về + xử lý + cắt thành tiles PNG</div>
+    </div>
+    <div class="bigflow-arrow">→</div>
+    <div class="bigflow-box b3">
+      <div class="icon">🌐</div>
+      <div class="name">Bunny CDN</div>
+      <div class="sub">Lưu tiles, phục vụ nhanh toàn cầu</div>
+    </div>
+    <div class="bigflow-arrow">→</div>
+    <div class="bigflow-box b4">
+      <div class="icon">📱</div>
+      <div class="name">User app</div>
+      <div class="sub">Web/mobile hiển thị bản đồ</div>
+    </div>
+  </div>
+</div>
+
+<!-- ──────────────────────────────────────────────── -->
+<!-- SECTION 2: 5 MAPS                                 -->
+<!-- ──────────────────────────────────────────────── -->
+<div class="section">
+  <h2><span class="section-num">2</span>5 loại bản đồ được xử lý</h2>
+  <p class="section-intro">Mỗi chu kỳ, hệ thống làm 5 bản đồ khác nhau từ cùng 1 cycle dữ liệu NOAA.</p>
+
+  <div class="maps">
+    <div class="map-card">
+      <div class="icon">🌡️</div>
+      <div class="name">Temperature</div>
+      <div class="detail">Nhiệt độ cảm nhận</div>
+    </div>
+    <div class="map-card">
+      <div class="icon">🌧️</div>
+      <div class="name">Rain (basic)</div>
+      <div class="detail">Lượng mưa tích lũy</div>
+    </div>
+    <div class="map-card">
+      <div class="icon">⛈️</div>
+      <div class="name">Rain (advanced)</div>
+      <div class="detail">Mưa + loại mưa (rain/snow/sleet)</div>
+    </div>
+    <div class="map-card">
+      <div class="icon">❄️</div>
+      <div class="name">Snow depth</div>
+      <div class="detail">Độ dày tuyết phủ</div>
+    </div>
+    <div class="map-card">
+      <div class="icon">💨</div>
+      <div class="name">Wind</div>
+      <div class="detail">Tốc độ + hướng gió bề mặt</div>
+    </div>
+  </div>
+</div>
+
+<!-- ──────────────────────────────────────────────── -->
+<!-- SECTION 3: WHEN DOES IT RUN?                      -->
+<!-- ──────────────────────────────────────────────── -->
+<div class="section">
+  <h2><span class="section-num">3</span>Khi nào chạy?</h2>
+  <p class="section-intro">NOAA cập nhật dữ liệu 4 lần/ngày (mỗi 6 giờ). Hệ thống fire ngay sau khi NOAA upload xong (~5h delay sau cycle start).</p>
+
+  <div class="timeline">
+    <div class="timeline-tick">
+      <div class="time">05:05</div>
+      <div class="label">UTC — cycle 00z</div>
+    </div>
+    <div class="timeline-tick">
+      <div class="time">11:05</div>
+      <div class="label">UTC — cycle 06z</div>
+    </div>
+    <div class="timeline-tick">
+      <div class="time">17:05</div>
+      <div class="label">UTC — cycle 12z</div>
+    </div>
+    <div class="timeline-tick">
+      <div class="time">23:05</div>
+      <div class="label">UTC — cycle 18z</div>
+    </div>
+  </div>
+  <p style="text-align:center; color: var(--muted); font-size: 13px;">
+    Mỗi mốc giờ, 5 maps fire stagger 3 phút (05:05, 05:08, 05:11, 05:14, 05:17) để không quá tải cùng lúc.
+  </p>
+</div>
+
+<!-- ──────────────────────────────────────────────── -->
+<!-- SECTION 4: STEP-BY-STEP                           -->
+<!-- ──────────────────────────────────────────────── -->
+<div class="section">
+  <h2><span class="section-num">4</span>1 bản đồ trải qua 6 bước</h2>
+  <p class="section-intro">Khi đến giờ fire, mỗi bản đồ tuần tự qua các bước sau. Toàn bộ chu kỳ thường mất 20-40 phút/map tùy server.</p>
+
+  <div class="steps">
+
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-content">
+        <h3>🔍 Hỏi NOAA: "Có dữ liệu mới chưa?"</h3>
+        <p>Gửi HEAD request đến NOAA để xem cycle mới đã upload xong chưa. Nếu chưa, fallback dùng cycle cũ trên disk.</p>
+        <span class="analogy">Như check email xem có thư mới không</span>
+      </div>
+      <div class="step-time">~5-30 giây</div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-content">
+        <h3>⬇️ Tải về 37 file GRIB2 từ NOAA</h3>
+        <p>GRIB2 là format dữ liệu thời tiết raw chứa số liệu cho từng giờ forecast (f000=now, f001=1h sau, ... f036=36h sau).</p>
+        <span class="analogy">Như download 37 file Excel chứa số liệu</span>
+      </div>
+      <div class="step-time">~2-5 phút</div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-content">
+        <h3>🎨 Biến GRIB2 thành tiles PNG</h3>
+        <p>Đọc số liệu → tô màu theo bảng colormap → cắt thành tiles 256×256 px ở nhiều zoom level (z=0..8). Mỗi file GRIB sinh ra hàng nghìn tiles.</p>
+        <span class="analogy">Như Photoshop: file raw → ảnh PNG, chia thành lưới ô vuông</span>
+      </div>
+      <div class="step-time">~10-25 phút</div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">4</div>
+      <div class="step-content">
+        <h3>☁️ Đẩy tiles lên Bunny CDN</h3>
+        <p>Upload song song (16-64 connections cùng lúc) cho nhanh. Bunny lưu tiles để các CDN node toàn cầu phục vụ user.</p>
+        <span class="analogy">Như upload ảnh lên Google Drive nhưng global</span>
+      </div>
+      <div class="step-time">~3-8 phút</div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">5</div>
+      <div class="step-content">
+        <h3>🔄 Bật công tắc "live"</h3>
+        <p>Ghi file <code>_current.json</code> trên Bunny trỏ vào cycle mới. <strong>Cùng lúc</strong> user toàn thế giới bắt đầu thấy dữ liệu mới. Atomic = không có khoảnh khắc nửa cũ nửa mới.</p>
+        <span class="analogy">Như flip công tắc đèn — bật một phát, sáng cả phòng</span>
+      </div>
+      <div class="step-time">~5-30 giây</div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">6</div>
+      <div class="step-content">
+        <h3>🧹 Dọn dẹp file tạm trên server</h3>
+        <p>Xoá GRIB2 đã tải, tiles staging, file JSON tạm. Đẩy cycle cũ ra khỏi Bunny (giữ 4 cycles gần nhất = 24h). Gửi báo cáo Telegram.</p>
+        <span class="analogy">Như xoá file Downloads/temp sau khi xong việc</span>
+      </div>
+      <div class="step-time">~1-2 phút</div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ──────────────────────────────────────────────── -->
+<!-- SECTION 4.5: A REAL DAY (24h)                     -->
+<!-- ──────────────────────────────────────────────── -->
+<div class="section">
+  <h2><span class="section-num">5</span>Một ngày 24h thực tế trên server</h2>
+  <p class="section-intro">Tất cả các sự kiện xảy ra trong 24h. Trục ngang là giờ UTC. Mỗi hàng là 1 loại event.</p>
+
+  <!-- Hour ruler -->
+  <div class="day-grid">
+    <div class="row-label" style="background: transparent; color: var(--muted); font-weight: 500;">⏰ Giờ UTC →</div>
+    <div class="hour-label">00</div>
+    <div class="hour-label">01</div>
+    <div class="hour-label">02</div>
+    <div class="hour-label">03</div>
+    <div class="hour-label">04</div>
+    <div class="hour-label">05</div>
+    <div class="hour-label">06</div>
+    <div class="hour-label">07</div>
+    <div class="hour-label">08</div>
+    <div class="hour-label">09</div>
+    <div class="hour-label">10</div>
+    <div class="hour-label">11</div>
+    <div class="hour-label">12</div>
+    <div class="hour-label">13</div>
+    <div class="hour-label">14</div>
+    <div class="hour-label">15</div>
+    <div class="hour-label">16</div>
+    <div class="hour-label">17</div>
+    <div class="hour-label">18</div>
+    <div class="hour-label">19</div>
+    <div class="hour-label">20</div>
+    <div class="hour-label">21</div>
+    <div class="hour-label">22</div>
+    <div class="hour-label">23</div>
+  </div>
+
+  <!-- Row 1: NOAA cycle availability -->
+  <div class="day-grid">
+    <div class="row-label" title="Lúc NOAA upload xong từng cycle">☁️ NOAA cycle ready</div>
+    <div class="row-cell" style="grid-column: 7;">
+      <div class="day-event noaa" style="left: 0; right: 0;" title="Cycle 00z available">00z</div>
+    </div>
+    <div class="row-cell" style="grid-column: 13;">
+      <div class="day-event noaa" style="left: 0; right: 0;" title="Cycle 06z available">06z</div>
+    </div>
+    <div class="row-cell" style="grid-column: 19;">
+      <div class="day-event noaa" style="left: 0; right: 0;" title="Cycle 12z available">12z</div>
+    </div>
+    <div class="row-cell" style="grid-column: 25;">
+      <div class="day-event noaa" style="left: 0; right: 0;" title="Cycle 18z available">18z</div>
+    </div>
+  </div>
+
+  <!-- Row 2: Map processing (cycle fire + done) -->
+  <div class="day-grid">
+    <div class="row-label" title="5 maps fire stagger 3min, concurrency=2, ~40-50min total">🗺️ 5 maps processing</div>
+    <div class="row-cell" style="grid-column: 7 / span 1;">
+      <div class="day-event gantt-bar" style="left: 8%; width: 92%;" title="00z cycle: fire 05:05, done ~05:55">cycle 1</div>
+    </div>
+    <div class="row-cell" style="grid-column: 13 / span 1;">
+      <div class="day-event gantt-bar" style="left: 8%; width: 92%;" title="06z cycle: fire 11:05, done ~11:55">cycle 2</div>
+    </div>
+    <div class="row-cell" style="grid-column: 19 / span 1;">
+      <div class="day-event gantt-bar" style="left: 8%; width: 92%;" title="12z cycle: fire 17:05, done ~17:55">cycle 3</div>
+    </div>
+    <div class="row-cell" style="grid-column: 25 / span 1;">
+      <div class="day-event gantt-bar" style="left: 8%; width: 92%;" title="18z cycle: fire 23:05, done ~23:55">cycle 4</div>
+    </div>
+  </div>
+
+  <!-- Row 3: Catchup every 2h at :30 -->
+  <div class="day-grid">
+    <div class="row-label" title="Catchup check mỗi 2 giờ — re-fire map nào tụt hậu">🔄 Catchup (mỗi 2h)</div>
+    <div class="row-cell" style="grid-column: 1;"><div class="day-event catchup" style="left: 50%; width: 50%;" title="00:30">·</div></div>
+    <div class="row-cell" style="grid-column: 3;"><div class="day-event catchup" style="left: 50%; width: 50%;" title="02:30">·</div></div>
+    <div class="row-cell" style="grid-column: 5;"><div class="day-event catchup" style="left: 50%; width: 50%;" title="04:30">·</div></div>
+    <div class="row-cell" style="grid-column: 7;"><div class="day-event catchup" style="left: 50%; width: 50%;" title="06:30">·</div></div>
+    <div class="row-cell" style="grid-column: 9;"><div class="day-event catchup" style="left: 50%; width: 50%;" title="08:30">·</div></div>
+    <div class="row-cell" style="grid-column: 11;"><div class="day-event catchup" style="left: 50%; width: 50%;" title="10:30">·</div></div>
+    <div class="row-cell" style="grid-column: 13;"><div class="day-event catchup" style="left: 50%; width: 50%;" title="12:30">·</div></div>
+    <div class="row-cell" style="grid-column: 15;"><div class="day-event catchup" style="left: 50%; width: 50%;" title="14:30">·</div></div>
+    <div class="row-cell" style="grid-column: 17;"><div class="day-event catchup" style="left: 50%; width: 50%;" title="16:30">·</div></div>
+    <div class="row-cell" style="grid-column: 19;"><div class="day-event catchup" style="left: 50%; width: 50%;" title="18:30">·</div></div>
+    <div class="row-cell" style="grid-column: 21;"><div class="day-event catchup" style="left: 50%; width: 50%;" title="20:30">·</div></div>
+    <div class="row-cell" style="grid-column: 23;"><div class="day-event catchup" style="left: 50%; width: 50%;" title="22:30">·</div></div>
+  </div>
+
+  <!-- Row 4: Retention every 6h at :45 -->
+  <div class="day-grid">
+    <div class="row-label" title="Retention check mỗi 6 giờ — xoá run cũ hơn KEEP_CYCLES">🗑️ Retention (mỗi 6h)</div>
+    <div class="row-cell" style="grid-column: 3;"><div class="day-event retention" style="left: 75%; width: 25%;" title="02:45">·</div></div>
+    <div class="row-cell" style="grid-column: 9;"><div class="day-event retention" style="left: 75%; width: 25%;" title="08:45">·</div></div>
+    <div class="row-cell" style="grid-column: 15;"><div class="day-event retention" style="left: 75%; width: 25%;" title="14:45">·</div></div>
+    <div class="row-cell" style="grid-column: 21;"><div class="day-event retention" style="left: 75%; width: 25%;" title="20:45">·</div></div>
+  </div>
+
+  <!-- Row 5: Daily report -->
+  <div class="day-grid">
+    <div class="row-label" title="Daily Telegram report tổng hợp">💬 Daily report</div>
+    <div class="row-cell" style="grid-column: 1;"><div class="day-event report" style="left: 50%; width: 50%;" title="00:30 — daily report sent to Telegram">📨 00:30</div></div>
+  </div>
+
+  <div style="margin-top: 16px; padding: 14px 18px; background: rgba(255,255,255,0.03); border-radius: 8px; font-size: 12px; color: var(--muted); line-height: 1.8;">
+    <strong style="color: var(--text);">📊 Tổng cộng trong 24h:</strong>
+    4 cycles dữ liệu × 5 maps = <strong style="color: var(--blue);">20 map jobs</strong> ·
+    <strong style="color: var(--purple);">12 catchup checks</strong> ·
+    <strong style="color: var(--pink);">4 retention runs</strong> ·
+    <strong style="color: var(--cyan);">1 daily report</strong>.
+    Tổng wall time worker pool ≈ <strong style="color: var(--green);">3-4 giờ/ngày</strong> (16-20 giờ còn lại server idle hoặc lo project khác).
+  </div>
+
+  <h3 style="margin-top: 32px; margin-bottom: 12px; font-size: 16px; color: var(--text);">⏱️ Diễn biến chi tiết 1 cycle (vd cycle 06z bắt đầu lúc 11:00 UTC)</h3>
+
+  <div class="cycle-zone">
+    <div class="cycle-zone-title">
+      <span class="cycle-name">🌊 Cycle 06z — bắt đầu</span>
+      <span class="cycle-time">11:00 UTC</span>
+    </div>
+    <div class="cycle-zone-flow">
+      <span class="pill">11:00</span>
+      <span class="arrow">→</span>
+      <span class="pill">NOAA upload xong cycle 06z (chậm hơn cycle start 5h)</span>
+    </div>
+  </div>
+
+  <div class="cycle-zone">
+    <div class="cycle-zone-title">
+      <span class="cycle-name">🔥 Stagger fire — 5 maps</span>
+      <span class="cycle-time">11:05 → 11:17 UTC</span>
+    </div>
+    <div class="cycle-zone-flow">
+      <span class="pill fire">11:05 🌡️ Temperature START</span>
+      <span class="arrow">→</span>
+      <span class="pill fire">11:08 🌧️ Rain basic START</span>
+      <span class="arrow">→</span>
+      <span class="pill">11:11 ⛈️ Rain adv. <em>queued</em></span>
+      <span class="arrow">→</span>
+      <span class="pill">11:14 ❄️ Snow <em>queued</em></span>
+      <span class="arrow">→</span>
+      <span class="pill">11:17 💨 Wind <em>queued</em></span>
+    </div>
+    <div style="font-size: 11px; color: var(--muted); margin-top: 8px;">
+      💡 Concurrency=2 → chỉ 2 maps chạy đồng thời, 3 maps còn lại queue chờ slot free.
+    </div>
+  </div>
+
+  <div class="cycle-zone">
+    <div class="cycle-zone-title">
+      <span class="cycle-name">⚙️ Processing — từng map qua 6 bước</span>
+      <span class="cycle-time">11:05 → ~11:55 UTC</span>
+    </div>
+    <div class="cycle-zone-flow">
+      <span class="pill">discovering</span>
+      <span class="arrow">→</span>
+      <span class="pill">downloading 37 GRIB2 files</span>
+      <span class="arrow">→</span>
+      <span class="pill">parse → build → cut tiles</span>
+      <span class="arrow">→</span>
+      <span class="pill">push lên Bunny</span>
+      <span class="arrow">→</span>
+      <span class="pill fire">flip pointer (user thấy data mới)</span>
+      <span class="arrow">→</span>
+      <span class="pill">cleanup local</span>
+    </div>
+    <div style="font-size: 11px; color: var(--muted); margin-top: 8px;">
+      Mỗi map ~20-40 phút. Worker pool xử lý parallel: parse/build/cut chạy đồng thời trên các frames khác nhau.
+    </div>
+  </div>
+
+  <div class="cycle-zone">
+    <div class="cycle-zone-title">
+      <span class="cycle-name">✅ Cycle complete</span>
+      <span class="cycle-time">~11:55 UTC</span>
+    </div>
+    <div class="cycle-zone-flow">
+      <span class="pill done">🌡️ done</span>
+      <span class="pill done">🌧️ done</span>
+      <span class="pill done">⛈️ done</span>
+      <span class="pill done">❄️ done</span>
+      <span class="pill done">💨 done</span>
+      <span class="arrow">→</span>
+      <span class="pill">💬 Per-cycle Telegram report</span>
+    </div>
+    <div style="font-size: 11px; color: var(--muted); margin-top: 8px;">
+      Cả 5 maps live trên Bunny. Server idle chờ cycle tiếp theo (17:00 UTC).
+    </div>
+  </div>
+
+  <div class="cycle-zone" style="border-left-color: var(--green);">
+    <div class="cycle-zone-title">
+      <span class="cycle-name" style="color: var(--green);">😴 Idle period</span>
+      <span class="cycle-time">~12:00 → 17:00 UTC</span>
+    </div>
+    <div class="cycle-zone-flow">
+      <span class="pill" style="background: rgba(167,139,250,0.15); color: var(--purple);">12:30 catchup (skip, đã up-to-date)</span>
+      <span class="pill" style="background: rgba(244,114,182,0.15); color: var(--pink);">14:45 retention (xoá cycle &gt; 24h)</span>
+      <span class="pill" style="background: rgba(167,139,250,0.15); color: var(--purple);">14:30 catchup</span>
+      <span class="pill" style="background: rgba(167,139,250,0.15); color: var(--purple);">16:30 catchup</span>
+      <span class="arrow">→</span>
+      <span class="pill" style="background: rgba(251,191,36,0.2); color: var(--yellow);">17:00 NOAA cycle 12z ready</span>
+      <span class="arrow">→</span>
+      <span class="pill fire">17:05 cycle tiếp theo START</span>
+    </div>
+    <div style="font-size: 11px; color: var(--muted); margin-top: 8px;">
+      Giữa các cycle, server không idle hoàn toàn: catchup/retention nhẹ chạy nền (<1% CPU). Cho các project khác trên cùng server thoải mái dùng CPU/RAM.
+    </div>
+  </div>
+
+</div>
+
+<!-- ──────────────────────────────────────────────── -->
+<!-- SECTION 5: SAFETY NETS                            -->
+<!-- ──────────────────────────────────────────────── -->
+<div class="section">
+  <h2><span class="section-num">6</span>Lỡ có sự cố thì sao?</h2>
+  <p class="section-intro">3 lớp lưới an toàn để pipeline không chết, không mất dữ liệu, không làm server die.</p>
+
+  <div class="safety">
+
+    <div class="safety-card">
+      <div class="q">❓ Lỡ NOAA chậm / down?</div>
+      <div class="a">
+        <strong>Catchup job</strong> tự kiểm tra mỗi 2 giờ. Nếu thấy có map nào tụt hậu so với cycle mới nhất, nó tự fire lại map đó. Pipeline không bao giờ bị "lỡ chuyến".
+      </div>
+      <span class="when">Mỗi 2h lúc xx:30</span>
+    </div>
+
+    <div class="safety-card">
+      <div class="q">❓ Lỡ disk đầy?</div>
+      <div class="a">
+        <strong>Retention job</strong> tự xoá run cũ hơn 4 cycles (24h). Nếu có run kẹt không xoá được lúc finalize, retention vớt sau 6h. Bunny pointer guard chống xoá nhầm data đang live.
+      </div>
+      <span class="when">Mỗi 6h lúc xx:45</span>
+    </div>
+
+    <div class="safety-card">
+      <div class="q">❓ Lỡ server quá tải?</div>
+      <div class="a">
+        <strong>Resource Guard</strong> tự throttle worker khi RAM &gt; 85% / CPU &gt; 95% / Disk &lt; 5GB. Project khác trên server không bị giành tài nguyên. <strong>Auto-scaler</strong> tự giảm worker count nếu peak RAM dự kiến vượt memory limit.
+      </div>
+      <span class="when">Real-time</span>
+    </div>
+
+  </div>
+</div>
+
+<!-- ──────────────────────────────────────────────── -->
+<!-- SECTION 6: HOW TO KNOW IT'S WORKING                -->
+<!-- ──────────────────────────────────────────────── -->
+<div class="section">
+  <h2><span class="section-num">7</span>Làm sao biết pipeline đang chạy đúng?</h2>
+  <p class="section-intro">4 cách kiểm tra — chọn cái nào tiện nhất cho bạn.</p>
+
+  <div class="observe">
+
+    <div class="observe-card">
+      <div class="icon">🟢</div>
+      <div>
+        <div class="title">Sidebar pill AUTO • ON</div>
+        <div class="desc">Mở admin UI → góc trái trên thấy pill xanh pulse = đang chạy. Đỏ = đã pause. Vàng = lỗi cần restart.</div>
+      </div>
+    </div>
+
+    <div class="observe-card">
+      <div class="icon">🩺</div>
+      <div>
+        <div class="title">Tab Diagnostics</div>
+        <div class="desc">7 subsystem cards (DB, scheduler, orchestrator, resources, last cycle, Bunny, NOAA). Tất cả xanh = OK.</div>
+      </div>
+    </div>
+
+    <div class="observe-card">
+      <div class="icon">💬</div>
+      <div>
+        <div class="title">Telegram alerts</div>
+        <div class="desc">Tin nhắn sau mỗi map xong + tin tổng hợp sau mỗi cycle + daily report 00:30 UTC. Có lỗi → tin critical ngay lập tức.</div>
+      </div>
+    </div>
+
+    <div class="observe-card">
+      <div class="icon">📦</div>
+      <div>
+        <div class="title">Download log bundle</div>
+        <div class="desc">Tab Diagnostics → chọn ngày → Download ZIP. Gửi tôi review nếu nghi sự cố. Bundle &lt; 50MB, chứa logs + DB metrics + state snapshot.</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ──────────────────────────────────────────────── -->
+<!-- SECTION 7: TECHNICAL DETAILS (COLLAPSIBLE)        -->
+<!-- ──────────────────────────────────────────────── -->
+<div class="section">
+  <h2><span class="section-num">8</span>Chi tiết kỹ thuật <span style="font-size: 13px; color: var(--muted); font-weight: 400; margin-left: 8px;">(dành cho engineer — click để mở)</span></h2>
+
+  <details>
+    <summary>🧵 Concurrency: bao nhiêu thứ chạy song song?</summary>
+    <div class="tech-table">
+      <div class="k">Concurrent maps</div>
+      <div class="v">MAX_PARALLEL_MAP_TYPES (auto-scaled, default 2-5)</div>
+      <div class="k">Parse pool</div>
+      <div class="v">ProcessPoolExecutor — đọc GRIB song song</div>
+      <div class="k">Build pool</div>
+      <div class="v">ProcessPoolExecutor — warp canvas EPSG:3857 song song</div>
+      <div class="k">Cut pool</div>
+      <div class="v">ProcessPoolExecutor — cắt PNG tiles song song</div>
+      <div class="k">Bunny upload</div>
+      <div class="v">httpx — BUNNY_MAX_PARALLEL connections (default 16)</div>
+      <div class="k">Auto-scaler</div>
+      <div class="v">Đọc cgroup CPU/RAM limit, tính worker count tự động</div>
+    </div>
+  </details>
+
+  <details>
+    <summary>🗂️ File nằm ở đâu trên server?</summary>
+    <div class="tech-table">
+      <div class="k">/app/database/data/</div>
+      <div class="v">GRIB2 đã tải (tự xoá sau khi finalize)</div>
+      <div class="k">/app/database/staging/</div>
+      <div class="v">Tiles tạm pre-publish (xoá sau Bunny push)</div>
+      <div class="k">/app/database/tiles/</div>
+      <div class="v">LIVE tiles local (chỉ dùng khi BUNNY_ENABLED=0)</div>
+      <div class="k">/app/database/json_grids/</div>
+      <div class="v">JSON grids cho rain_advanced</div>
+      <div class="k">/app/database/available/</div>
+      <div class="v">Master + per-map availability JSON</div>
+      <div class="k">/app/database/noaa_shared.sqlite</div>
+      <div class="v">SQLite WAL — 6 tables (jobs, metrics, status, ...)</div>
+      <div class="k">/app/logs/app.log</div>
+      <div class="v">Text logs (rotating daily, giữ 7 ngày)</div>
+      <div class="k">/app/logs/events.jsonl</div>
+      <div class="v">Structured JSON-per-line cho parsing/export</div>
+    </div>
+  </details>
+
+  <details>
+    <summary>⚙️ Job state machine (PENDING → READY)</summary>
+    <p style="font-size: 13px; color: var(--muted); margin-bottom: 12px;">
+      Mỗi (map_type × forecast_hour × product) là 1 job. State được lưu vào SQLite table <code>pipeline_jobs</code>:
+    </p>
+    <div class="tech-table">
+      <div class="k">PENDING</div>
+      <div class="v">Vừa enqueue, chưa xử lý</div>
+      <div class="k">PARSING / PARSED</div>
+      <div class="v">Đang/đã đọc GRIB</div>
+      <div class="k">BUILDING / BUILT</div>
+      <div class="v">Đang/đã warp canvas</div>
+      <div class="k">CUTTING / READY</div>
+      <div class="v">Đang/đã cắt tiles + push Bunny</div>
+      <div class="k">SKIPPED</div>
+      <div class="v">GRIB rỗng/missing — bình thường, không phải lỗi</div>
+      <div class="k">ERROR</div>
+      <div class="v">Pool crash hoặc bug — catchup 2h sẽ vớt lại</div>
+      <div class="k">CANCELLED</div>
+      <div class="v">User bấm Cancel trong UI</div>
+    </div>
+  </details>
+
+  <details>
+    <summary>🛡️ Resource thresholds (config có thể tune)</summary>
+    <div class="tech-table">
+      <div class="k">MAX_RAM_PERCENT</div>
+      <div class="v">85% — throttle khi vượt</div>
+      <div class="k">MAX_CPU_PERCENT</div>
+      <div class="v">95% — throttle build/cut khi vượt</div>
+      <div class="k">MAX_IOWAIT_PERCENT</div>
+      <div class="v">30% — throttle khi disk IO bottleneck</div>
+      <div class="k">MIN_DISK_FREE_GB</div>
+      <div class="v">5GB — pause pipeline khi disk gần đầy</div>
+      <div class="k">KEEP_CYCLES</div>
+      <div class="v">4 — giữ 24h data trên Bunny + local</div>
+      <div class="k">LOG_RETENTION_DAYS</div>
+      <div class="v">7 — giữ log file 1 tuần</div>
+      <div class="k">NOAA_RPM_LIMIT</div>
+      <div class="v">100 req/phút khi probe + download</div>
+      <div class="k">CPU_BUDGET_PERCENT</div>
+      <div class="v">50% — share host với project khác (auto-scaler dùng)</div>
+    </div>
+  </details>
+
+  <details>
+    <summary>🌐 Endpoint admin chính</summary>
+    <div class="tech-table">
+      <div class="k">GET /admin/jobs</div>
+      <div class="v">Trạng thái 5 maps hiện tại</div>
+      <div class="k">GET /admin/stream</div>
+      <div class="v">SSE real-time: jobs + progress + log lines</div>
+      <div class="k">GET /admin/diagnostics</div>
+      <div class="v">Snapshot 7 subsystem health checks</div>
+      <div class="k">GET /admin/diagnostics/export</div>
+      <div class="v">ZIP bundle (?date=YYYY-MM-DD hoặc ?days=N)</div>
+      <div class="k">GET /admin/diagnostics/log-dates</div>
+      <div class="v">List các ngày có log trên server</div>
+      <div class="k">POST /admin/scheduler/enable</div>
+      <div class="v">Bật auto (persist DB)</div>
+      <div class="k">POST /admin/scheduler/disable</div>
+      <div class="v">Tạm dừng auto</div>
+      <div class="k">POST /admin/trigger-job/{map}</div>
+      <div class="v">Trigger 1 map thủ công</div>
+      <div class="k">POST /admin/trigger-job-all</div>
+      <div class="v">Trigger cả 5 maps (smoke test)</div>
+    </div>
+  </details>
+
+</div>
+
+<!-- ──────────────────────────────────────────────── -->
+<!-- TL;DR                                              -->
+<!-- ──────────────────────────────────────────────── -->
+<div class="tldr">
+  <h2><span class="section-num" style="background: linear-gradient(135deg, var(--green), var(--cyan));">✓</span>Tóm tắt 1 câu</h2>
+  <p>
+    <strong>Cứ mỗi 6 giờ</strong>, hệ thống tự tải dữ liệu thời tiết từ NOAA Mỹ, biến thành 5 loại bản đồ (mưa, gió, tuyết, nhiệt độ), đẩy lên Bunny CDN để user xem,
+    rồi dọn dẹp file tạm. <strong>Tự retry khi NOAA chậm, tự dọn disk khi đầy, tự throttle khi server tải nặng</strong>. Không cần ai click — chỉ cần check Telegram alerts.
+  </p>
+</div>
+
+<footer>
+  Open in browser: <span class="mono">http://&lt;server&gt;:8001/admin/pipeline-diagram.html</span>
+</footer>
+
+</div>
+</body>
+</html>

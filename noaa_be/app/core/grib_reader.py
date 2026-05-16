@@ -133,7 +133,7 @@ def read_first_field(file_path: Path, filter_by_keys: dict | None = None) -> Gri
         values = values[::-1, :]
 
     return GribField(
-        variable=var_name,
+        variable=str(var_name),
         short_name=short_name,
         lat=lat.astype(np.float32),
         lon=lon.astype(np.float32),
@@ -179,7 +179,7 @@ def read_multi_fields(
                         values = values[::-1, :]
 
                     result[sn] = GribField(
-                        variable=vname,
+                        variable=str(vname),
                         short_name=sn,
                         lat=lat.astype(np.float32),
                         lon=lon.astype(np.float32),
