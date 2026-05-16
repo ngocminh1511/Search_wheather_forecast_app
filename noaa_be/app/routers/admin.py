@@ -499,8 +499,11 @@ def finalize_bunny(
 
     pointer_ok = bunny.write_pointer(map_type, current_run=run_id, previous_run=prev)
 
-    # 2. Build + upload timeline (bunny_run_ready=True since pointer now matches)
-    timeline_doc = build_timeline_static(map_type, run_id, cfg, bunny_run_ready=True)
+    # 2. Build + upload timeline — probe Bunny CHÍNH XÁC từng frame (HEAD).
+    # Không hardcode all-ready: pipeline có thể push lỡ vài frame, hoặc admin
+    # gọi endpoint này trước khi finalize hoàn tất → cần phản ánh đúng trạng
+    # thái thực trên Bunny để FE không show frame không tồn tại.
+    timeline_doc = build_timeline_static(map_type, run_id, cfg, bunny_client=bunny)
     if not timeline_doc["frames"]:
         return {
             "pointer_ok": pointer_ok,

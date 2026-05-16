@@ -287,10 +287,13 @@ def _delete_run(map_type: str, run_id: str, cfg: Any) -> None:
                         bunny.write_pointer(
                             map_type, current_run=prev, previous_run=None,
                         )
-                        # Rebuild _timeline.json để khớp với prev run
+                        # Rebuild _timeline.json để khớp với prev run.
+                        # Probe Bunny cho prev_run — `bunny_run_ready=True`
+                        # cũ là giả định sai: prev run có thể đã bị xóa 1 phần
+                        # hoặc chưa bao giờ push đủ. HEAD per fff phản ánh đúng.
                         try:
                             timeline_doc = build_timeline_static(
-                                map_type, prev, cfg, bunny_run_ready=True,
+                                map_type, prev, cfg, bunny_client=bunny,
                             )
                             if timeline_doc["frames"]:
                                 bunny.write_timeline_metadata(map_type, timeline_doc)

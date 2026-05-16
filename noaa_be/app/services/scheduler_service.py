@@ -959,8 +959,11 @@ def finalize_map_to_bunny(
     # 3b. Upload _timeline.json so FE can render timeline without hitting BE API
     try:
         from .timeline_builder import build_timeline_static
-        # bunny_run_ready=True because we just pointed at this run
-        timeline_doc = build_timeline_static(map_type, run_id, cfg, bunny_run_ready=True)
+        # Probe Bunny (HEAD per fff) để xác định CHÍNH XÁC frame nào có chunk.
+        # Trước đây dùng bunny_run_ready=True làm shortcut → mọi frame trong
+        # availability đều `tiles_ready=True` ngay cả khi push lỡ; FE hiển
+        # thị timeline đầy đủ dù thực tế chỉ vài frame có dữ liệu.
+        timeline_doc = build_timeline_static(map_type, run_id, cfg, bunny_client=bunny)
         if timeline_doc["frames"]:
             timeline_ok = bunny.write_timeline_metadata(map_type, timeline_doc)
             if metrics_out is not None:

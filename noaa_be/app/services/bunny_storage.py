@@ -152,6 +152,20 @@ class BunnyStorageClient:
             log.warning("Bunny GET %s: %s", remote, e)
             return None
 
+    def head_object(self, remote: str) -> bool:
+        """Probe object existence without downloading body. Returns True if
+        Bunny responds 200, False on 404/error.
+
+        Bunny Storage API supports HEAD on object URLs (cheaper than GET for
+        existence checks — no payload transfer).
+        """
+        try:
+            r = self._client.head(self._url(remote))
+            return 200 <= r.status_code < 300
+        except Exception as e:
+            log.warning("Bunny HEAD %s: %s", remote, e)
+            return False
+
     def delete_file(self, remote: str) -> bool:
         try:
             r = self._client.delete(self._url(remote))
